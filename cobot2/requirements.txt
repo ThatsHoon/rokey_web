@@ -1,0 +1,21 @@
+# Client UI backend — Python dependencies (pip-managed only).
+# rclpy / std_msgs come from the ROS 2 distribution and are NOT listed here.
+#
+# Install: pip install -r requirements.txt
+
+# Web server + WebSocket
+fastapi==0.136.1
+uvicorn==0.46.0
+websockets==16.0
+
+# Audio capture + signal processing
+pyaudio==0.2.14
+numpy==1.24.4
+scipy==1.15.3
+
+# Wake-word detection (ONNX backend)
+openwakeword==0.6.0
+onnxruntime==1.23.2
+
+# OpenAI Whisper STT + GPT command parser
+openai==1.98.0

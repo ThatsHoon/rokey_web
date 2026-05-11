@@ -1,0 +1,1802 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ROBO CHEF — 오늘의 주문</title>
+
+<!-- Fonts: Noto Serif KR (display), Fraunces (latin display italic), IBM Plex Sans KR (body), JetBrains Mono (numerics) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,700;0,9..144,900;1,9..144,400;1,9..144,700;1,9..144,900&family=IBM+Plex+Sans+KR:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500;700&family=Noto+Serif+KR:wght@400;700;900&display=swap" rel="stylesheet">
+
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script src="firebase_config.js"></script>
+
+<style>
+/* ══════════════════════════════════════════════════════════════
+   DESIGN TOKENS — Neo-Hanok Editorial
+═══════════════════════════════════════════════════════════════ */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+/* 주문 완료 후 조리현황 페이지로 슬라이드 전환
+   주의: body 에 will-change/transform 을 상시 걸지 말 것.
+   position:fixed 인 .mob-cart-footer 의 containing block 이 body 로 바뀌어
+   좁은 화면에서 푸터가 "페이지 하단(=스크롤된 위치)" 으로 튀어감. */
+html.page-exit-left body {
+  transform: translateX(-100vw);
+  opacity: 0.4;
+}
+body {
+  transition: transform 620ms cubic-bezier(.4, 0, .2, 1),
+              opacity   620ms cubic-bezier(.4, 0, .2, 1);
+}
+
+:root {
+  color-scheme: light;
+
+  /* Paper & ink */
+  --paper:     #F2ECE0;
+  --paper-2:   #E8DFCF;
+  --bone:      #F8F2E3;
+  --cream:     #FDF7E7;
+  --ink:       #14100B;
+  --ink-2:     #2A2018;
+  --ink-soft:  #6B5F50;
+  --ink-faint: #A59682;
+
+  /* Accent — warm earth, not generic orange */
+  --brick:     #B8341C;
+  --brick-d:   #8A2410;
+  --brick-l:   #D85236;
+  --mustard:   #D4A72C;
+  --moss:      #5B6B3B;
+
+  /* Lines */
+  --border:    #D8CFBD;
+  --border-2:  #B8AC94;
+
+  /* Type */
+  --f-serif:   'Noto Serif KR', 'Fraunces', serif;
+  --f-sans:    'IBM Plex Sans KR', -apple-system, sans-serif;
+  --f-mono:    'JetBrains Mono', ui-monospace, monospace;
+  --f-eng:     'Fraunces', 'Noto Serif KR', serif;
+
+  /* Elevation */
+  --sh-1:      0 1px 3px rgba(20,16,11,.06);
+  --sh-2:      0 6px 24px rgba(20,16,11,.08);
+  --sh-3:      0 24px 60px rgba(20,16,11,.14);
+}
+
+html, body { height: 100%; }
+body {
+  font-family: var(--f-sans);
+  background: var(--paper);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  position: relative;
+  overflow-x: hidden;
+  font-weight: 400;
+}
+
+/* Paper grain + subtle tint wash */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background-image:
+    radial-gradient(circle at 18% 8%,  rgba(184,52,28,.045), transparent 55%),
+    radial-gradient(circle at 82% 92%, rgba(212,167,44,.04), transparent 60%),
+    url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.09 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 1;
+  mix-blend-mode: multiply;
+}
+body > * { position: relative; z-index: 2; }
+
+::selection { background: var(--ink); color: var(--cream); }
+
+/* ══════════════════════════════════════════════════════════════
+   HEADER — Editorial with rotating stamp + ticker
+═══════════════════════════════════════════════════════════════ */
+.hdr {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 13px 24px;
+  background: var(--ink);
+  color: var(--cream);
+  border-bottom: 1px solid rgba(253,247,231,.08);
+  position: sticky; top: 0; z-index: 50;
+}
+.hdr-left { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+
+.stamp {
+  position: relative;
+  width: 48px; height: 48px;
+  flex-shrink: 0;
+}
+.stamp svg {
+  width: 100%; height: 100%;
+  animation: rot 22s linear infinite;
+}
+.stamp-core {
+  position: absolute;
+  inset: 12px;
+  background: var(--brick);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--f-serif);
+  font-weight: 900;
+  color: var(--cream);
+  font-size: 13px;
+  letter-spacing: .5px;
+  box-shadow: inset 0 0 0 1px rgba(253,247,231,.15);
+}
+@keyframes rot { to { transform: rotate(360deg); } }
+
+.hdr-brand { line-height: 1; }
+.hdr-brand-kr {
+  font-family: var(--f-serif);
+  font-weight: 900;
+  font-size: 22px;
+  letter-spacing: -.02em;
+  color: var(--cream);
+}
+.hdr-brand-en {
+  font-family: var(--f-mono);
+  font-size: 9px;
+  letter-spacing: .24em;
+  color: rgba(253,247,231,.42);
+  margin-top: 4px;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+/* Ticker */
+.ticker {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+}
+.ticker-track {
+  display: inline-flex;
+  white-space: nowrap;
+  gap: 28px;
+  animation: tick 38s linear infinite;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  color: rgba(253,247,231,.48);
+  letter-spacing: .15em;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+.ticker-track span::before { content: '◆ '; color: var(--mustard); }
+@keyframes tick {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+.hdr-right {
+  display: flex; align-items: center; gap: 14px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.hdr-status {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: .18em;
+  font-weight: 700;
+  color: #A5BF76;
+  padding: 5px 11px;
+  border: 1px solid rgba(165,191,118,.35);
+  border-radius: 100px;
+  background: rgba(91,107,59,.1);
+}
+.hdr-status .pulse {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #A5BF76;
+  animation: pulse 1.8s infinite;
+}
+@keyframes pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(165,191,118,.6); }
+  70%  { box-shadow: 0 0 0 7px rgba(165,191,118,0); }
+  100% { box-shadow: 0 0 0 0 rgba(165,191,118,0); }
+}
+.hdr-time {
+  font-family: var(--f-mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--cream);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  letter-spacing: .05em;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   NAV STRIP — brick red
+═══════════════════════════════════════════════════════════════ */
+.nav-strip {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 11px 24px;
+  background: var(--brick);
+  color: var(--cream);
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  position: relative;
+  overflow: hidden;
+}
+.nav-strip::before {
+  content: '';
+  position: absolute; inset: 0;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent 0 10px,
+    rgba(253,247,231,.03) 10px 11px
+  );
+  pointer-events: none;
+}
+.nav-strip-l {
+  font-weight: 700;
+  display: flex; align-items: center; gap: 10px;
+  position: relative;
+}
+.nav-strip-l .nav-dot {
+  width: 6px; height: 6px; background: var(--mustard);
+  border-radius: 50%;
+}
+.nav-strip-r {
+  display: flex; align-items: center; gap: 12px;
+  position: relative;
+}
+.nav-strip-r a {
+  color: rgba(253,247,231,.55);
+  text-decoration: none;
+  transition: color .15s;
+  font-weight: 500;
+}
+.nav-strip-r a:hover { color: var(--cream); }
+.nav-strip-r a.active { color: var(--cream); font-weight: 700; }
+.nav-strip-r a.active::before {
+  content: '▸ ';
+  margin-right: 1px;
+  color: var(--mustard);
+}
+.nav-sep { color: rgba(253,247,231,.28); font-weight: 300; }
+
+/* ══════════════════════════════════════════════════════════════
+   MAIN LAYOUT
+═══════════════════════════════════════════════════════════════ */
+.main {
+  max-width: 1680px;
+  margin: 0 auto;
+}
+
+@media (min-width: 1024px) {
+  .main {
+    display: grid;
+    grid-template-columns: 1fr 440px;
+    min-height: calc(100vh - 94px);
+    align-items: start;
+  }
+  .menu-section { padding: 52px 56px 80px; }
+  .cart-panel {
+    position: sticky; top: 94px;
+    height: calc(100vh - 94px);
+    overflow: hidden;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   HERO — Massive Korean serif + vertical label
+═══════════════════════════════════════════════════════════════ */
+.hero {
+  margin-bottom: 44px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 28px;
+  align-items: end;
+  padding-bottom: 26px;
+  border-bottom: 1px solid var(--border);
+  animation: rise .7s .1s both;
+}
+@keyframes rise {
+  from { opacity: 0; transform: translateY(18px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.hero-vlabel {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .3em;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  padding: 6px 0 6px 10px;
+  border-left: 2px solid var(--brick);
+  align-self: stretch;
+  white-space: nowrap;
+}
+
+.hero-main { min-width: 0; }
+.hero-sup {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: .28em;
+  color: var(--brick);
+  text-transform: uppercase;
+  margin-bottom: 14px;
+  font-weight: 700;
+  display: flex; align-items: center; gap: 12px;
+}
+.hero-sup::after {
+  content: '';
+  flex: 1; height: 1px;
+  background: linear-gradient(90deg, var(--brick), transparent);
+  max-width: 120px;
+}
+.hero-title {
+  font-family: var(--f-serif);
+  font-weight: 900;
+  font-size: clamp(52px, 7.2vw, 96px);
+  line-height: .9;
+  letter-spacing: -.038em;
+  color: var(--ink);
+}
+.hero-title em {
+  font-family: var(--f-eng);
+  font-weight: 900;
+  font-style: italic;
+  color: var(--brick);
+  letter-spacing: -.025em;
+  font-variation-settings: "opsz" 144;
+}
+.hero-sub {
+  font-family: var(--f-eng);
+  font-style: italic;
+  font-size: 18px;
+  color: var(--ink-soft);
+  margin-top: 16px;
+  max-width: 520px;
+  line-height: 1.4;
+  font-weight: 400;
+}
+
+.hero-meta {
+  text-align: right;
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: .2em;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  line-height: 1.8;
+}
+.hero-meta strong {
+  color: var(--ink);
+  font-weight: 700;
+}
+.hero-meta .hm-count {
+  font-family: var(--f-serif);
+  font-size: 44px;
+  font-weight: 900;
+  color: var(--ink);
+  line-height: 1;
+  letter-spacing: -.02em;
+  display: block;
+  margin-bottom: 6px;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   MENU CARDS — Editorial portrait with big number
+═══════════════════════════════════════════════════════════════ */
+.menu-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 280px));
+  gap: 20px;
+  justify-content: start;
+}
+
+.m-card {
+  position: relative;
+  background: var(--bone);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  cursor: pointer;
+  display: flex; flex-direction: column;
+  aspect-ratio: 3 / 4;                  /* 카드 가로세로 비율 고정 */
+  transition: transform .35s cubic-bezier(.2,.8,.2,1), box-shadow .35s, border-color .2s;
+  animation: cardrise .8s both;
+}
+.m-card:nth-child(1) { animation-delay: .22s; }
+.m-card:nth-child(2) { animation-delay: .34s; }
+.m-card:nth-child(3) { animation-delay: .46s; }
+.m-card:nth-child(4) { animation-delay: .58s; }
+
+@keyframes cardrise {
+  from { opacity: 0; transform: translateY(28px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.m-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--sh-3);
+  border-color: var(--border-2);
+}
+.m-card.sel {
+  background: var(--cream);
+  border: 1.5px solid var(--ink);
+  box-shadow: 8px 8px 0 var(--ink);
+  transform: translateY(-2px);
+}
+.m-card.sel:hover {
+  transform: translateY(-5px);
+  box-shadow: 10px 10px 0 var(--ink);
+}
+
+.m-card-no {
+  position: absolute;
+  top: 10px; left: 13px;
+  z-index: 3;
+  font-family: var(--f-serif);
+  font-weight: 900;
+  font-size: 36px;
+  line-height: 1;
+  color: var(--cream);
+  -webkit-text-stroke: 1.5px var(--ink);
+  text-shadow: 2px 3px 0 rgba(20,16,11,.35);
+  pointer-events: none;
+  transition: all .35s cubic-bezier(.2,.8,.2,1);
+  letter-spacing: -.04em;
+}
+.m-card.sel .m-card-no {
+  color: var(--brick);
+  -webkit-text-stroke: 2px var(--ink);
+  text-shadow: 3px 4px 0 var(--ink);
+  transform: scale(1.05);
+}
+
+.m-card-tag {
+  position: absolute;
+  top: 16px; right: 14px;
+  z-index: 3;
+  font-family: var(--f-mono);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: .24em;
+  text-transform: uppercase;
+  background: var(--ink);
+  color: var(--cream);
+  padding: 5px 11px;
+  border-radius: 100px;
+}
+.m-card-tag.tag-HOT {
+  background: var(--brick);
+  animation: bounce 2.2s ease-in-out infinite;
+}
+.m-card-tag.tag-PREMIUM {
+  background: var(--mustard);
+  color: var(--ink);
+}
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-3px); }
+}
+
+.m-card-img {
+  aspect-ratio: 1 / 1;                     /* 원본(정사각)에 맞춤 */
+  background: var(--paper-2);
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border);
+  padding: 8px;
+  display: flex; align-items: center; justify-content: center;
+}
+.m-card-img img {
+  max-width: 100%; max-height: 100%;
+  width: auto; height: auto;
+  object-fit: contain;                     /* 이미지 잘리지 않고 전체 표시 */
+  transition: transform .7s cubic-bezier(.2,.8,.2,1);
+  filter: saturate(1.05) contrast(1.02) drop-shadow(0 3px 6px rgba(20,16,11,.15));
+}
+.m-card-img .emoji-fallback {
+  font-size: 72px;
+  line-height: 1;
+}
+.m-card:hover .m-card-img img { transform: scale(1.04); }
+.m-card.sel .m-card-img img { transform: scale(1.02); }
+.m-card[data-match="HOTTEOK"] .m-card-img img { border-radius: 90px; }
+
+.m-card.sold-out { cursor: not-allowed; }
+.m-card.sold-out:hover { transform: none; box-shadow: none; border-color: var(--border); }
+.m-card.sold-out .m-card-img img { filter: grayscale(.85) opacity(.55); transform: none !important; }
+.m-card.sold-out .m-card-title,
+.m-card.sold-out .m-card-sub,
+.m-card.sold-out .m-price { opacity: .45; }
+.m-card-sold {
+  position: absolute;
+  top: 16px; left: 14px;
+  z-index: 4;
+  font-family: var(--f-sans, inherit);
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: .08em;
+  background: #d7281f;
+  color: #fff;
+  padding: 6px 13px;
+  border-radius: 4px;
+  box-shadow: 0 3px 10px rgba(215,40,31,.45);
+}
+.m-card.sold-out .m-qty button {
+  opacity: .35;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.m-card-body {
+  padding: 16px 16px 14px;
+  display: flex; flex-direction: column; gap: 7px;
+  flex: 1;
+}
+.m-card-title {
+  font-family: var(--f-serif);
+  font-weight: 900;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: -.025em;
+  color: var(--ink);
+}
+.m-card-title::after {
+  content: attr(data-en);
+  display: block;
+  font-family: var(--f-eng);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--ink-soft);
+  letter-spacing: 0;
+  margin-top: 4px;
+  font-variation-settings: "opsz" 144;
+}
+.m-card-sub {
+  font-family: var(--f-sans);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+.m-card-meta {
+  margin-top: auto;
+  padding-top: 11px;
+  border-top: 1px dashed var(--border-2);
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  flex-wrap: wrap; row-gap: 8px;
+}
+.m-price {
+  font-family: var(--f-serif);
+  font-weight: 900;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--ink);
+  letter-spacing: -.025em;
+  white-space: nowrap;
+}
+.m-price .sym {
+  font-family: var(--f-eng);
+  font-weight: 400;
+  font-style: italic;
+  font-size: 16px;
+  color: var(--brick);
+  margin-right: 2px;
+  vertical-align: baseline;
+}
+
+/* Quantity stepper */
+.m-qty {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  border: 1.5px solid var(--ink);
+  background: var(--paper);
+  border-radius: 100px;
+  padding: 2px;
+  margin-left: auto;
+}
+.m-qty button {
+  width: 28px; height: 28px;
+  border: none; background: transparent;
+  font-family: var(--f-serif);
+  font-size: 16px; font-weight: 900;
+  color: var(--ink);
+  cursor: pointer;
+  border-radius: 50%;
+  transition: background .15s, color .15s, transform .1s;
+  display: flex; align-items: center; justify-content: center;
+}
+.m-qty button:hover { background: var(--ink); color: var(--cream); }
+.m-qty button:active { transform: scale(.85); }
+.m-qty .q-num {
+  min-width: 22px;
+  font-family: var(--f-mono);
+  font-weight: 700;
+  font-size: 13px;
+  text-align: center;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   CART PANEL — Receipt aesthetic
+═══════════════════════════════════════════════════════════════ */
+.cart-panel {
+  background: var(--cream);
+  display: flex; flex-direction: column;
+  position: relative;
+  border-left: 1px solid var(--border-2);
+}
+/* Perforated left edge (scallop) */
+.cart-panel::before {
+  content: '';
+  position: absolute;
+  top: 0; left: -7px; bottom: 0;
+  width: 14px;
+  background-image: radial-gradient(circle at 0 7px, var(--paper) 6.5px, transparent 7px);
+  background-size: 14px 16px;
+  background-repeat: repeat-y;
+  z-index: 2;
+}
+
+.cart-inner {
+  padding: 34px 30px 22px;
+  display: flex; flex-direction: column; flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.cart-hdr {
+  padding-bottom: 18px;
+  border-bottom: 2px solid var(--ink);
+  position: relative;
+  flex-shrink: 0;
+}
+.cart-hdr-meta {
+  display: flex; align-items: center; justify-content: space-between;
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: .22em;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  margin-bottom: 10px;
+  font-weight: 700;
+}
+.cart-hdr-no {
+  background: var(--ink);
+  color: var(--cream);
+  padding: 3px 9px;
+  border-radius: 3px;
+  letter-spacing: .15em;
+}
+.cart-hdr-title {
+  font-family: var(--f-serif);
+  font-weight: 900;
+  font-size: 32px;
+  letter-spacing: -.025em;
+  line-height: 1;
+  color: var(--ink);
+}
+.cart-hdr-sub {
+  font-family: var(--f-eng);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 14px;
+  color: var(--ink-soft);
+  margin-top: 4px;
+}
+
+.cart-list {
+  flex: 1;
+  overflow-y: auto;
+  margin: 0 -14px;
+  padding: 14px;
+  min-height: 0;
+}
+
+.cart-empty {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  height: 100%; min-height: 200px;
+  text-align: center;
+  gap: 14px;
+  padding: 40px 0;
+}
+.cart-empty .ce-rune {
+  font-family: var(--f-serif);
+  font-size: 84px;
+  line-height: 1;
+  color: var(--border-2);
+  font-weight: 900;
+  letter-spacing: -.02em;
+}
+.cart-empty .ce-text {
+  font-family: var(--f-eng);
+  font-style: italic;
+  font-size: 15px;
+  color: var(--ink-soft);
+  line-height: 1.5;
+  font-weight: 400;
+}
+.cart-empty .ce-text strong {
+  font-family: var(--f-serif);
+  font-style: normal;
+  font-weight: 700;
+  color: var(--ink);
+  display: block;
+  font-size: 14px;
+  letter-spacing: -.01em;
+  margin-top: 2px;
+}
+
+.c-item {
+  padding: 14px 4px;
+  border-bottom: 1px dashed var(--border-2);
+  display: grid;
+  grid-template-columns: 48px 1fr auto 24px;
+  gap: 12px;
+  align-items: center;
+  animation: slidein .28s ease;
+}
+.c-item:last-child { border-bottom: none; }
+@keyframes slidein {
+  from { opacity: 0; transform: translateX(10px); }
+  to   { opacity: 1; transform: none; }
+}
+.c-item-img {
+  width: 48px; height: 48px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--paper-2);
+  border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 24px;
+}
+.c-item-img img { width: 100%; height: 100%; object-fit: cover; }
+.c-item-info { min-width: 0; }
+.c-item-name {
+  font-family: var(--f-serif);
+  font-weight: 700;
+  font-size: 17px;
+  color: var(--ink);
+  letter-spacing: -.015em;
+  line-height: 1.1;
+}
+.c-item-unit {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  color: var(--ink-soft);
+  letter-spacing: .05em;
+  margin-top: 3px;
+}
+.c-item-tot {
+  font-family: var(--f-serif);
+  font-weight: 900;
+  font-size: 17px;
+  color: var(--ink);
+  letter-spacing: -.015em;
+  white-space: nowrap;
+}
+.c-item-rm {
+  width: 22px; height: 22px;
+  border: 1px solid var(--border-2);
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .15s;
+  font-weight: 700;
+}
+.c-item-rm:hover {
+  background: var(--brick);
+  color: var(--cream);
+  border-color: var(--brick);
+  transform: rotate(90deg);
+}
+
+.cart-foot {
+  padding: 18px 0 0;
+  border-top: 1px dashed var(--border-2);
+  flex-shrink: 0;
+}
+.cart-foot > div + div { margin-top: 7px; }
+.prow {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-family: var(--f-mono);
+  font-size: 12px;
+  font-weight: 500;
+}
+.prow .lbl {
+  color: var(--ink-soft);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.prow .val {
+  color: var(--ink);
+  font-weight: 700;
+}
+.ptotal {
+  padding-top: 14px;
+  margin-top: 14px;
+  border-top: 3px double var(--ink);
+}
+.ptotal .plabel {
+  font-family: var(--f-serif);
+  font-weight: 900;
+  font-size: 19px;
+  color: var(--ink);
+  letter-spacing: -.01em;
+  text-transform: none;
+}
+.ptotal .pval {
+  font-family: var(--f-serif);
+  font-weight: 900;
+  font-size: 28px;
+  color: var(--brick);
+  letter-spacing: -.02em;
+}
+
+.pay-btn {
+  width: 100%;
+  margin-top: 22px;
+  padding: 20px 22px;
+  background: var(--ink);
+  color: var(--cream);
+  border: none;
+  cursor: pointer;
+  font-family: var(--f-serif);
+  font-weight: 900;
+  font-size: 20px;
+  letter-spacing: -.005em;
+  display: flex; align-items: center; justify-content: space-between;
+  transition: all .25s;
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.pay-btn::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: var(--brick);
+  transform: translateY(101%);
+  transition: transform .4s cubic-bezier(.2,.8,.2,1);
+  z-index: -1;
+}
+.pay-btn:hover:not(:disabled)::before { transform: translateY(0); }
+.pay-btn:disabled {
+  background: var(--border-2);
+  color: var(--ink-faint);
+  cursor: not-allowed;
+}
+.pay-arrow {
+  font-family: var(--f-eng);
+  font-weight: 400;
+  font-style: italic;
+  font-size: 26px;
+  transition: transform .35s cubic-bezier(.2,.8,.2,1);
+}
+.pay-btn:hover:not(:disabled) .pay-arrow { transform: translateX(6px); }
+
+/* ══════════════════════════════════════════════════════════════
+   MOBILE CART FOOTER
+═══════════════════════════════════════════════════════════════ */
+.mob-cart-footer { display: none; }
+
+@media (max-width: 1023px) {
+  .cart-panel { display: none; }
+  .main { display: block; padding-bottom: 220px; }
+  .menu-section { padding: 32px 20px 40px; }
+
+  .mob-cart-footer {
+    display: block;
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: var(--cream);
+    box-shadow: 0 -14px 40px rgba(20,16,11,.2);
+    z-index: 40;
+    border-top: 2px solid var(--ink);
+  }
+  /* perforated top */
+  .mob-cart-footer::before {
+    content: '';
+    position: absolute;
+    top: -7px; left: 0; right: 0;
+    height: 14px;
+    background-image: radial-gradient(circle at 7px 0, var(--paper) 6.5px, transparent 7px);
+    background-size: 16px 14px;
+    background-repeat: repeat-x;
+  }
+  .mob-cart-toggle {
+    padding: 13px 20px;
+    display: flex; align-items: center; justify-content: space-between;
+    cursor: pointer;
+    border-bottom: 1px dashed var(--border-2);
+    background: var(--cream);
+  }
+  .mob-cart-toggle-left {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--f-serif);
+    font-weight: 900;
+    font-size: 17px;
+    letter-spacing: -.01em;
+  }
+  .mob-cart-count {
+    font-family: var(--f-mono);
+    font-size: 11px;
+    background: var(--ink); color: var(--cream);
+    padding: 3px 9px; border-radius: 3px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    min-width: 26px;
+    text-align: center;
+  }
+  .mob-cart-subtotal {
+    font-family: var(--f-serif);
+    font-weight: 900;
+    font-size: 19px;
+    color: var(--brick);
+    letter-spacing: -.02em;
+  }
+  .mob-cart-drawer {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height .35s cubic-bezier(.2,.8,.2,1);
+    background: var(--cream);
+  }
+  .mob-cart-drawer.open { max-height: 280px; overflow-y: auto; }
+  .mob-cart-drawer .c-item { padding: 12px 20px; }
+
+  .mob-cart-foot {
+    padding: 14px 20px;
+    display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    background: var(--cream);
+  }
+  .mob-price-summary { flex: 1; min-width: 0; }
+  .mob-prow {
+    font-family: var(--f-mono);
+    font-size: 10px;
+    color: var(--ink-soft);
+    display: flex; justify-content: space-between;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    font-weight: 500;
+  }
+  .mob-ptot {
+    font-family: var(--f-serif);
+    font-weight: 900;
+    font-size: 20px;
+    color: var(--brick);
+    display: flex; justify-content: space-between;
+    border-top: 2px solid var(--ink);
+    padding-top: 5px;
+    margin-top: 5px;
+    letter-spacing: -.02em;
+  }
+  .pay-btn-mob {
+    flex-shrink: 0;
+    padding: 16px 24px;
+    background: var(--ink); color: var(--cream);
+    border: none;
+    font-family: var(--f-serif);
+    font-weight: 900;
+    font-size: 16px;
+    cursor: pointer;
+    letter-spacing: -.01em;
+    display: flex; align-items: center; gap: 8px;
+    transition: all .25s;
+    position: relative;
+    overflow: hidden;
+  }
+  .pay-btn-mob:hover:not(:disabled) { background: var(--brick); }
+  .pay-btn-mob:disabled {
+    background: var(--border-2); color: var(--ink-faint);
+    cursor: not-allowed;
+  }
+  .pay-btn-mob .pay-arrow {
+    font-family: var(--f-eng);
+    font-style: italic;
+    font-size: 20px;
+  }
+  .mob-empty {
+    padding: 22px 20px; text-align: center;
+    font-family: var(--f-eng);
+    font-style: italic;
+    color: var(--ink-faint);
+    font-size: 14px;
+  }
+
+  /* Hero adjusts */
+  .hero {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .hero-vlabel, .hero-meta { display: none; }
+
+  /* Cards */
+  .menu-grid {
+    grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+    gap: 20px;
+  }
+  .m-card-no { font-size: 42px; top: 10px; left: 13px; }
+  .m-card-title { font-size: 26px; }
+  .m-price { font-size: 26px; }
+}
+
+@media (max-width: 560px) {
+  .menu-grid { grid-template-columns: 1fr; }
+  .m-card { max-width: 440px; margin: 0 auto; width: 100%; }
+  .hdr { gap: 10px; padding: 11px 16px; }
+  .hdr-brand-kr { font-size: 17px; }
+  .hdr-brand-en { display: none; }
+  .ticker { display: none; }
+  .nav-strip { padding: 9px 16px; font-size: 10px; letter-spacing: .14em; }
+  .nav-strip-l { display: none; }
+  .nav-strip-r { margin-left: auto; }
+  .hero-title { font-size: 44px; }
+  .hero-sub { font-size: 15px; }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   PAYMENT MODAL — Receipt
+═══════════════════════════════════════════════════════════════ */
+.overlay {
+  position: fixed; inset: 0;
+  background: rgba(20,16,11,.74);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 200;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .35s;
+  padding: 20px;
+}
+.overlay.open { opacity: 1; pointer-events: all; }
+
+.receipt {
+  background: var(--cream);
+  width: 100%; max-width: 400px;
+  position: relative;
+  transform: translateY(30px) scale(.94);
+  transition: transform .4s cubic-bezier(.2,.8,.2,1);
+  box-shadow: 0 30px 80px rgba(0,0,0,.5);
+}
+.overlay.open .receipt { transform: none; }
+
+/* Top & bottom scallop edges */
+.receipt::before, .receipt::after {
+  content: '';
+  position: absolute; left: 0; right: 0;
+  height: 14px;
+  background-image: radial-gradient(circle at 7px 50%, transparent 6.5px, var(--cream) 7px);
+  background-size: 14px 14px;
+  background-repeat: repeat-x;
+}
+.receipt::before { top: -7px; }
+.receipt::after  { bottom: -7px; transform: scaleY(-1); }
+
+.r-inner {
+  padding: 40px 34px 36px;
+  text-align: center;
+}
+.r-mark {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: .32em;
+  color: var(--brick);
+  text-transform: uppercase;
+  padding-bottom: 14px;
+  border-bottom: 1px dashed var(--border-2);
+  margin-bottom: 24px;
+  font-weight: 700;
+}
+.r-ico {
+  font-family: var(--f-serif);
+  font-weight: 900;
+  font-size: 54px;
+  line-height: 1;
+  margin-bottom: 16px;
+  color: var(--brick);
+  transition: all .3s;
+}
+.r-ico.done { color: var(--moss); }
+.r-title {
+  font-family: var(--f-serif);
+  font-weight: 900;
+  font-size: 28px;
+  letter-spacing: -.025em;
+  line-height: 1;
+  margin-bottom: 8px;
+}
+.r-sub {
+  font-family: var(--f-eng);
+  font-style: italic;
+  font-size: 14px;
+  color: var(--ink-soft);
+  font-weight: 400;
+}
+.r-num {
+  margin: 22px auto 0;
+  padding: 20px 28px;
+  background: var(--paper);
+  border: 2px dashed var(--ink);
+  font-family: var(--f-serif);
+  font-weight: 900;
+  font-size: 40px;
+  letter-spacing: .1em;
+  color: var(--brick);
+  display: inline-block;
+  position: relative;
+  line-height: 1;
+}
+.r-num::before, .r-num::after {
+  content: '★';
+  position: absolute;
+  top: 50%; transform: translateY(-50%);
+  font-size: 14px;
+  color: var(--ink);
+}
+.r-num::before { left: 10px; }
+.r-num::after  { right: 10px; }
+
+.r-redir {
+  margin: 18px auto 0;
+  font-family: var(--f-body);
+  font-size: 13.5px;
+  color: var(--ink-soft);
+  letter-spacing: .02em;
+  opacity: 0;
+  animation: r-redir-in .4s .1s forwards;
+}
+.r-redir b {
+  color: var(--ink);
+  font-weight: 700;
+}
+.r-redir #mRedirSec {
+  display: inline-block;
+  min-width: 1.3em;
+  font-family: var(--f-serif);
+  font-weight: 900;
+  font-size: 17px;
+  color: var(--brick);
+  text-align: center;
+}
+@keyframes r-redir-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+
+.r-ok {
+  margin-top: 26px;
+  padding: 14px 44px;
+  background: var(--ink);
+  color: var(--cream);
+  border: none;
+  font-family: var(--f-serif);
+  font-weight: 900;
+  font-size: 16px;
+  letter-spacing: -.005em;
+  cursor: pointer;
+  transition: background .2s, transform .1s;
+}
+.r-ok:hover { background: var(--brick); }
+.r-ok:active { transform: scale(.97); }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--ink-soft); }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════ HEADER ═══════════════════ -->
+<header class="hdr">
+  <div class="hdr-left">
+    <div class="stamp">
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <defs>
+          <path id="stamp-circle" d="M 50 50 m -38 0 a 38 38 0 1 1 76 0 a 38 38 0 1 1 -76 0"/>
+        </defs>
+        <text fill="#FDF7E7" font-family="JetBrains Mono, monospace" font-size="9" font-weight="500" letter-spacing="1.5">
+          <textPath href="#stamp-circle">◆ ROBO CHEF ◆ 로보셰프 ◆ ROBO CHEF ◆ 로보셰프 ◆</textPath>
+        </text>
+      </svg>
+      <div class="stamp-core">RC</div>
+    </div>
+    <div class="hdr-brand">
+      <div class="hdr-brand-kr">로보셰프</div>
+      <div class="hdr-brand-en">Automated Kitchen · No. 001</div>
+    </div>
+  </div>
+  <div class="ticker" aria-hidden="true">
+    <div class="ticker-track">
+      <span>로봇 팔이 직접 요리합니다</span>
+      <span>주문 후 약 3분 내 조리 시작</span>
+      <span>서울 성수동 지점 · NO 001</span>
+      <span>ROBO CHEF · EST 2026</span>
+      <span>로봇 팔이 직접 요리합니다</span>
+      <span>주문 후 약 3분 내 조리 시작</span>
+      <span>서울 성수동 지점 · NO 001</span>
+      <span>ROBO CHEF · EST 2026</span>
+    </div>
+  </div>
+  <div class="hdr-right">
+    <div class="hdr-status"><span class="pulse"></span>OPERATING</div>
+    <div class="hdr-time" id="clock"></div>
+  </div>
+</header>
+
+<!-- ═══════════════════ NAV STRIP ═══════════════════ -->
+<nav class="nav-strip">
+  <div class="nav-strip-l">
+    <span class="nav-dot"></span>
+    §&nbsp;001 · 오늘의 주문 · Order Today
+  </div>
+  <div class="nav-strip-r">
+    <a href="https://kiosk.thatshoon.com" class="active">주문</a>
+    <span class="nav-sep">/</span>
+    <a href="https://status.thatshoon.com">조리 현황</a>
+    <span class="nav-sep">/</span>
+    <a href="https://admin.thatshoon.com">관리자</a>
+  </div>
+</nav>
+
+<!-- ═══════════════════ MAIN ═══════════════════ -->
+<div class="main">
+
+  <section class="menu-section">
+    <div class="hero">
+      <div class="hero-vlabel">MENU · 20·26 · SEASON 01</div>
+      <div class="hero-main">
+        <div class="hero-sup">TODAY'S SELECTION · 오늘의 메뉴</div>
+        <h1 class="hero-title">지금 먹고 싶은<br><em>menu.</em></h1>
+        <p class="hero-sub">A robotic kitchen, trained on decades of craft. Select a dish and let the arm do the rest—no queue, no waiting staff, only precision.</p>
+      </div>
+      <div class="hero-meta">
+        <span class="hm-count" id="menuCount">02</span>
+        <strong>AVAILABLE</strong><br>
+        DISHES ON MENU
+      </div>
+    </div>
+    <div class="menu-grid" id="menuGrid"></div>
+  </section>
+
+  <aside class="cart-panel">
+    <div class="cart-inner">
+      <div class="cart-hdr">
+        <div class="cart-hdr-meta">
+          <span>RECEIPT · 영수증</span>
+          <span class="cart-hdr-no"><span id="cartBadge">0</span> / ITEMS</span>
+        </div>
+        <div class="cart-hdr-title">주문 명세서</div>
+        <div class="cart-hdr-sub">Robo Chef · order summary</div>
+      </div>
+
+      <div class="cart-list" id="cartList"></div>
+
+      <div class="cart-foot">
+        <div class="prow"><span class="lbl">Subtotal · 소계</span><span class="val" id="sub">₩0</span></div>
+        <div class="prow"><span class="lbl">VAT 10% · 부가세</span><span class="val" id="tax">₩0</span></div>
+        <div class="ptotal prow">
+          <span class="plabel">합계 · Total</span>
+          <span class="pval" id="tot">₩0</span>
+        </div>
+        <button class="pay-btn" id="payBtn" disabled onclick="openPay()">
+          <span>결제하기</span>
+          <span class="pay-arrow">→</span>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+</div>
+
+<!-- ═══════════════════ MOBILE CART FOOTER ═══════════════════ -->
+<div class="mob-cart-footer" id="mobCartFooter">
+  <div class="mob-cart-toggle" onclick="toggleMobCart()">
+    <div class="mob-cart-toggle-left">
+      주문 명세서
+      <span class="mob-cart-count" id="mobCartCount">0</span>
+    </div>
+    <div class="mob-cart-subtotal" id="mobSubtotal">₩0</div>
+  </div>
+  <div class="mob-cart-drawer" id="mobCartDrawer">
+    <div class="mob-empty" id="mobEmptyMsg">아직 담긴 메뉴가 없습니다.</div>
+    <div id="mobCartList"></div>
+  </div>
+  <div class="mob-cart-foot">
+    <div class="mob-price-summary">
+      <div class="mob-prow"><span>Subtotal</span><span id="mobSub">₩0</span></div>
+      <div class="mob-prow"><span>VAT</span><span id="mobTax">₩0</span></div>
+      <div class="mob-ptot"><span>합계</span><span id="mobTot">₩0</span></div>
+    </div>
+    <button class="pay-btn-mob" id="mobPayBtn" disabled onclick="openPay()">
+      결제 <span class="pay-arrow">→</span>
+    </button>
+  </div>
+</div>
+
+<!-- ═══════════════════ PAYMENT MODAL ═══════════════════ -->
+<div class="overlay" id="payOverlay">
+  <div class="receipt">
+    <div class="r-inner">
+      <div class="r-mark">★ ROBO CHEF · 영수증 ★</div>
+      <div class="r-ico" id="mIco">◎</div>
+      <div class="r-title" id="mT">주문 전송 중</div>
+      <div class="r-sub" id="mS">잠시만 기다려 주세요.</div>
+      <div class="r-num" id="mNum" style="display:none"></div>
+      <div class="r-redir" id="mRedir" style="display:none">
+        <span id="mRedirSec">3</span>초 후 <b>조리현황 페이지</b>로 이동합니다…
+      </div>
+      <button class="r-ok" id="mOk" style="display:none" onclick="closePay()">확인 · Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ ROBOT BUSY NOTICE ═══════════════════ -->
+<div class="overlay" id="busyOverlay">
+  <div class="receipt">
+    <div class="r-inner">
+      <div class="r-mark">★ ROBO CHEF · 안내 ★</div>
+      <div class="r-ico">⚠</div>
+      <div class="r-title">잠시만요</div>
+      <div class="r-sub" style="margin-top:14px; font-style:normal; font-family:inherit; color:var(--ink); line-height:1.6;">
+        현재 주방에서 문제가 발생하였습니다.<br>
+        잠시 후 다시 주문해 주세요.<br>
+        <span style="color:var(--ink-soft); font-size:13px;">죄송합니다.</span>
+      </div>
+      <button class="r-ok" onclick="closeBusyNotice()">확인 · Confirm</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+//  MENU DATA
+// ══════════════════════════════════════════════════════════════
+const MENU = [
+  {id:1, name:'라면',     en:'RAMYEON',   sub:'매콤한 국물의 클래식 라면', emoji:'🍜', img:'images/ramen.webp', price:4500,  match:'RAMEN', tag:'HOT'},
+  {id:2, name:'스테이크', en:'STEAK',     sub:'로즈마리 그릴 스테이크',    emoji:'🥩', img:'images/steak.webp', price:15000, match:'STEAK', tag:'PREMIUM'},
+  {id:3, name:'호떡',     en:'HOTTEOK',   sub:'흑설탕 시럽이 가득한 길거리 간식', emoji:'🫓', img:'images/hottok.png', price:2500,  match:'HOTTEOK', tag:'SWEET', soldOut:true},
+];
+
+let cart = {};
+const fmt = n => '₩' + n.toLocaleString();
+const isMobile = () => window.innerWidth < 1024;
+
+// ══════════════════════════════════════════════════════════════
+//  MENU RENDER
+// ══════════════════════════════════════════════════════════════
+function renderMenu() {
+  const grid = document.getElementById('menuGrid');
+  if (!grid) return;
+  grid.innerHTML = MENU.map((m, idx) => `
+    <article class="m-card${cart[m.id] ? ' sel' : ''}${m.soldOut ? ' sold-out' : ''}" id="mc${m.id}" data-match="${m.match || ''}"${m.soldOut ? '' : ` onclick="if(event.target.closest('.m-qty'))return; chg(${m.id},1)"`}>
+      <div class="m-card-no">${String(idx+1).padStart(2,'0')}</div>
+      ${m.soldOut ? `<div class="m-card-sold">품절</div>` : ''}
+      ${m.tag ? `<div class="m-card-tag tag-${m.tag}">${m.tag}</div>` : ''}
+      <div class="m-card-img">
+        ${m.img
+          ? `<img src="${m.img}" alt="${m.name}" loading="lazy">`
+          : `<div class="emoji-fallback">${m.emoji}</div>`}
+      </div>
+      <div class="m-card-body">
+        <h3 class="m-card-title" data-en="${m.en || ''}">${m.name}</h3>
+        <p class="m-card-sub">${m.sub}</p>
+        <div class="m-card-meta">
+          <div class="m-price"><span class="sym">₩</span>${m.price.toLocaleString()}</div>
+          <div class="m-qty">
+            <button onclick="chg(${m.id},-1)" aria-label="수량 감소"${m.soldOut ? ' disabled' : ''}>−</button>
+            <span class="q-num" id="qn${m.id}">${cart[m.id] || 0}</span>
+            <button onclick="chg(${m.id},1)" aria-label="수량 증가"${m.soldOut ? ' disabled' : ''}>+</button>
+          </div>
+        </div>
+      </div>
+    </article>
+  `).join('');
+
+  const mc = document.getElementById('menuCount');
+  if (mc) mc.textContent = String(MENU.length).padStart(2, '0');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  QUANTITY CHANGE
+// ══════════════════════════════════════════════════════════════
+function chg(id, d) {
+  const m = MENU.find(x => x.id === id);
+  if (m && m.soldOut) return;
+  const n = Math.max(0, (cart[id] || 0) + d);
+  if (n === 0) delete cart[id]; else cart[id] = n;
+  renderMenu(); renderCart();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  CART RENDER
+// ══════════════════════════════════════════════════════════════
+function renderCart() {
+  const items  = MENU.filter(m => cart[m.id]);
+  const sub    = items.reduce((s, m) => s + m.price * cart[m.id], 0);
+  const tax    = Math.floor(sub * 0.1);
+  const tot    = sub + tax;
+  const totQty = items.reduce((s, m) => s + cart[m.id], 0);
+  const hasItems = items.length > 0;
+
+  const listHTML = hasItems
+    ? items.map(m => `
+        <div class="c-item">
+          <div class="c-item-img">
+            ${m.img
+              ? `<img src="${m.img}" alt="${m.name}">`
+              : `<span>${m.emoji}</span>`}
+          </div>
+          <div class="c-item-info">
+            <div class="c-item-name">${m.name}</div>
+            <div class="c-item-unit">${fmt(m.price)} × ${cart[m.id]}</div>
+          </div>
+          <div class="c-item-tot">${fmt(m.price * cart[m.id])}</div>
+          <button class="c-item-rm" onclick="chg(${m.id},-${cart[m.id]})" aria-label="제거">×</button>
+        </div>
+      `).join('')
+    : '';
+
+  // Desktop
+  const cl = document.getElementById('cartList');
+  if (cl) {
+    cl.innerHTML = hasItems ? listHTML : `
+      <div class="cart-empty">
+        <div class="ce-rune">空</div>
+        <div class="ce-text">
+          Your receipt awaits.
+          <strong>메뉴를 선택해 주세요.</strong>
+        </div>
+      </div>`;
+  }
+  const setTxt = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+  setTxt('cartBadge', String(totQty).padStart(2,'0'));
+  setTxt('sub', fmt(sub));
+  setTxt('tax', fmt(tax));
+  setTxt('tot', fmt(tot));
+  const payBtn = document.getElementById('payBtn');
+  if (payBtn) payBtn.disabled = !hasItems;   // _robotBusy 는 openPay() 에서 모달로 처리
+
+  // Mobile
+  const ml = document.getElementById('mobCartList');
+  const me = document.getElementById('mobEmptyMsg');
+  if (ml) {
+    ml.innerHTML = hasItems ? listHTML : '';
+    if (me) me.style.display = hasItems ? 'none' : 'block';
+  }
+  setTxt('mobCartCount', String(totQty).padStart(2,'0'));
+  setTxt('mobSubtotal', fmt(sub));
+  setTxt('mobSub', fmt(sub));
+  setTxt('mobTax', fmt(tax));
+  setTxt('mobTot', fmt(tot));
+  const mb = document.getElementById('mobPayBtn');
+  if (mb) mb.disabled = !hasItems;           // _robotBusy 는 openPay() 에서 모달로 처리
+}
+
+// ══════════════════════════════════════════════════════════════
+//  MOBILE DRAWER
+// ══════════════════════════════════════════════════════════════
+let drawerOpen = false;
+function toggleMobCart() {
+  drawerOpen = !drawerOpen;
+  const d = document.getElementById('mobCartDrawer');
+  if (d) d.classList.toggle('open', drawerOpen);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  FIREBASE
+// ══════════════════════════════════════════════════════════════
+let firebaseDB = null;
+
+// 로봇 ERROR 상태 동안 주문 차단 — state.startsWith('ERROR') 에서 set,
+// state === 'RECOVERY' 가 관측되면 해제.
+let _robotBusy = false;
+
+function _applyRobotBusyUI() {
+  const payBtn = document.getElementById('payBtn');
+  const mobBtn = document.getElementById('mobPayBtn');
+  const btnTxt = _robotBusy ? '로봇 점검 중' : '결제하기';
+  if (payBtn) {
+    const lbl = payBtn.querySelector('span:first-child');
+    if (lbl) lbl.textContent = btnTxt;
+  }
+  if (mobBtn) {
+    // 텍스트 노드 교체: '결제 <arrow>' / '로봇 점검 중 <arrow>'
+    const arrow = mobBtn.querySelector('.pay-arrow');
+    mobBtn.textContent = _robotBusy ? '로봇 점검 중 ' : '결제 ';
+    if (arrow) mobBtn.appendChild(arrow);
+  }
+  // disabled 상태는 renderCart 가 hasItems 와 함께 재계산
+  renderCart();
+}
+
+try {
+  firebase.initializeApp(FIREBASE_CONFIG);
+  firebaseDB = firebase.database();
+  console.log('[Kiosk] Firebase 연결 완료');
+  loadRecipesFromFirebase();
+
+  // 로봇 상태 구독 — ERROR* 진입 시 주문 차단, RECOVERY 가 관측되면 해제
+  firebaseDB.ref('/robot_status').on('value', snap => {
+    const rs = snap.val();
+    const state = (rs && typeof rs === 'object') ? rs.state : null;
+    if (typeof state !== 'string') return;
+
+    const wasBusy = _robotBusy;
+    if (state.startsWith('ERROR')) {
+      _robotBusy = true;
+    } else if (state === 'RECOVERY' || state.startsWith('RECOVER')) {
+      _robotBusy = false;
+    }
+    if (_robotBusy !== wasBusy) {
+      console.log('[Kiosk] _robotBusy →', _robotBusy, '(state=' + state + ')');
+      _applyRobotBusyUI();
+    }
+  });
+} catch(e) {
+  console.warn('[Kiosk] Firebase 연결 실패, 로컬 모드:', e.message);
+}
+
+async function loadRecipesFromFirebase() {
+  if (!firebaseDB) return;
+  try {
+    const snap = await firebaseDB.ref('/recipes').once('value');
+    const data = snap.val();
+    if (!data) {
+      console.warn('[Kiosk] /recipes 비어있음');
+      return;
+    }
+    const availableIds = Object.keys(data);
+    console.log('[Kiosk] Firebase 레시피 ID 목록:', availableIds);
+
+    let matched = 0;
+    const unmatched = [];
+    MENU.forEach(m => {
+      if (!m.match) return;
+      const matchLC = m.match.toLowerCase();
+      // 대소문자 무시 substring 매칭
+      const hit = Object.entries(data).find(([id]) => id.toLowerCase().includes(matchLC));
+      if (!hit) {
+        unmatched.push(`${m.name}(${m.match})`);
+        return;
+      }
+      const [fbId, recipe] = hit;
+      m.fb_id = fbId;
+      if (recipe?.total_steps) m.sub = `${recipe.total_steps}단계 로봇 조리`;
+      matched++;
+    });
+    renderMenu(); renderCart();
+    console.log('[Kiosk] Firebase 레시피 매칭:', matched, '/', MENU.length,
+                unmatched.length ? `— 미매칭: ${unmatched.join(', ')}` : '');
+  } catch(e) {
+    console.warn('[Kiosk] 레시피 로드 실패:', e.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  PAYMENT
+// ══════════════════════════════════════════════════════════════
+function showBusyNotice() {
+  const ov = document.getElementById('busyOverlay');
+  if (ov) ov.classList.add('open');
+}
+function closeBusyNotice() {
+  const ov = document.getElementById('busyOverlay');
+  if (ov) ov.classList.remove('open');
+}
+
+async function openPay() {
+  if (_robotBusy) {
+    console.warn('[Kiosk] 로봇 ERROR 상태 — 주문 차단, 안내 모달 표시');
+    showBusyNotice();
+    return;
+  }
+  const ov = document.getElementById('payOverlay');
+  ov.classList.add('open');
+  document.getElementById('mIco').textContent = '◎';
+  document.getElementById('mIco').classList.remove('done');
+  document.getElementById('mT').textContent = '주문 전송 중';
+  document.getElementById('mS').textContent = 'Sending your order to the kitchen...';
+  document.getElementById('mNum').style.display = 'none';
+  document.getElementById('mOk').style.display = 'none';
+
+  try {
+    const items = MENU.filter(m => cart[m.id]);
+    const sub   = items.reduce((s, m) => s + m.price * cart[m.id], 0);
+    const tax   = Math.floor(sub * 0.1);
+    const total = sub + tax;
+
+    const uniqueRecipeIds = [...new Set(items.map(m => m.fb_id).filter(Boolean))];
+    const primaryRecipeId = uniqueRecipeIds[0] || 'UNKNOWN';
+
+    const menu_counts = items.reduce((acc, m) => {
+      acc[m.name] = (acc[m.name] || 0) + cart[m.id];
+      return acc;
+    }, {});
+
+    const recipe_data = {};
+    if (firebaseDB && uniqueRecipeIds.length > 0) {
+      const results = await Promise.allSettled(
+        uniqueRecipeIds.map(rid =>
+          firebaseDB.ref(`/recipes/${rid}`).once('value').then(snap => ({ rid, data: snap.val() }))
+        )
+      );
+      results.forEach(r => {
+        if (r.status === 'fulfilled' && r.value.data) recipe_data[r.value.rid] = r.value.data;
+      });
+    }
+
+    const orderPayload = {
+      recipe_id:   primaryRecipeId,
+      recipe_ids:  uniqueRecipeIds,
+      menu_counts,
+      items: items.map(m => ({
+        name: m.name, qty: cart[m.id], recipe_id: m.fb_id,
+        price: m.price, subtotal: m.price * cart[m.id],
+      })),
+      recipe_data,
+      total, status: 'pending',
+      order_time: new Date().toISOString(),
+    };
+
+    let orderId = 'LOCAL_' + Date.now();
+
+    if (firebaseDB) {
+      const newRef = firebaseDB.ref('/orders').push();
+      await newRef.set({...orderPayload, order_id: newRef.key});
+      orderId = newRef.key;
+
+      // recipe_id 별 주문 수량 집계 후 order_count 증가 — transaction 으로 atomic
+      const qtyByRid = items.reduce((acc, m) => {
+        if (!m.fb_id) return acc;
+        acc[m.fb_id] = (acc[m.fb_id] || 0) + cart[m.id];
+        return acc;
+      }, {});
+      for (const [rid, qty] of Object.entries(qtyByRid)) {
+        try {
+          const r = await firebaseDB.ref(`/recipes/${rid}/order_count`)
+            .transaction(cur => (typeof cur === 'number' ? cur : 0) + qty);
+          console.log(`[Kiosk] order_count 증가: ${rid} +${qty} (committed=${r.committed})`);
+        } catch (err) {
+          console.warn(`[Kiosk] order_count 실패 (${rid}):`, err.message);
+        }
+      }
+      // 매칭 실패한 메뉴 경고 — 장바구니에 fb_id 없는 항목이 있으면 로그
+      const missing = items.filter(m => !m.fb_id).map(m => m.name);
+      if (missing.length) {
+        console.warn('[Kiosk] fb_id 없는 메뉴 — order_count 증가 불가:', missing,
+                     '— /recipes 에 해당 레시피가 등록되어 있는지 확인');
+      }
+      const allSnap = await firebaseDB.ref('/orders').orderByKey().once('value');
+      const allKeys = Object.keys(allSnap.val() || {}).sort();
+      if (allKeys.length > 10) {
+        await Promise.all(allKeys.slice(0, allKeys.length - 10).map(k =>
+          firebaseDB.ref(`/orders/${k}`).remove()
+        ));
+      }
+    } else {
+      const res = await fetch(`${BACKEND_URL}/api/orders`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(orderPayload),
+      });
+      if (res.ok) orderId = (await res.json()).order_id;
+    }
+
+    const ico = document.getElementById('mIco');
+    ico.textContent = '✓';
+    ico.classList.add('done');
+    document.getElementById('mT').textContent = '주문 완료';
+    document.getElementById('mS').textContent = 'Order confirmed. Your number is:';
+    document.getElementById('mNum').textContent = '#' + orderId.slice(-6).toUpperCase();
+    document.getElementById('mNum').style.display = 'inline-block';
+    document.getElementById('mOk').style.display  = 'inline-block';
+
+    _scheduleStatusRedirect();
+
+  } catch(e) {
+    console.error('[Kiosk] 주문 전송 오류:', e);
+    const ico = document.getElementById('mIco');
+    ico.textContent = '✓';
+    ico.classList.add('done');
+    document.getElementById('mT').textContent = '결제 완료';
+    document.getElementById('mS').textContent = 'Offline order. Your number is:';
+    document.getElementById('mNum').textContent = '#' + (Math.floor(Math.random()*900000)+100000);
+    document.getElementById('mNum').style.display = 'inline-block';
+    document.getElementById('mOk').style.display  = 'inline-block';
+
+    _scheduleStatusRedirect();
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  주문 완료 3초 후 조리현황 페이지로 슬라이드 이동
+// ══════════════════════════════════════════════════════════════
+const STATUS_URL     = 'https://status.thatshoon.com';
+const REDIRECT_DELAY = 3000;     // ms
+const SLIDE_DURATION = 620;      // CSS transition 과 일치
+let _redirectTimer   = null;
+let _countdownTimer  = null;
+
+function _scheduleStatusRedirect() {
+  if (_redirectTimer) return;    // 중복 예약 방지
+
+  // 카운트다운 UI 표시
+  const redirEl = document.getElementById('mRedir');
+  const secEl   = document.getElementById('mRedirSec');
+  if (redirEl && secEl) {
+    let remain = Math.ceil(REDIRECT_DELAY / 1000);
+    secEl.textContent = remain;
+    redirEl.style.display = 'block';
+    _countdownTimer = setInterval(() => {
+      remain -= 1;
+      if (remain <= 0) {
+        clearInterval(_countdownTimer);
+        _countdownTimer = null;
+        return;
+      }
+      secEl.textContent = remain;
+    }, 1000);
+  }
+
+  _redirectTimer = setTimeout(() => {
+    document.documentElement.classList.add('page-exit-left');
+    setTimeout(() => {
+      window.location.href = STATUS_URL;
+    }, SLIDE_DURATION);
+  }, REDIRECT_DELAY);
+}
+
+function closePay() {
+  document.getElementById('payOverlay').classList.remove('open');
+  drawerOpen = false;
+  const d = document.getElementById('mobCartDrawer');
+  if (d) d.classList.remove('open');
+  cart = {};
+  renderMenu(); renderCart();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  CLOCK
+// ══════════════════════════════════════════════════════════════
+function updateClock() {
+  const d = new Date();
+  const hh = String(d.getHours()).padStart(2,'0');
+  const mm = String(d.getMinutes()).padStart(2,'0');
+  const ss = String(d.getSeconds()).padStart(2,'0');
+  const t = `${hh}:${mm}:${ss}`;
+  ['clock','clockM'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = t;
+  });
+}
+updateClock();
+setInterval(updateClock, 1000);
+
+// ══════════════════════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════════════════════
+renderMenu();
+renderCart();
+</script>
+</body>
+</html>

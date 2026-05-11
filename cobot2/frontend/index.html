@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ROKEY</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      height: 100dvh;
+      /* Neutral dark backdrop — stays constant regardless of face state so
+         the canvas exterior (portrait bands, brief load flash) doesn't shift
+         color when the character animates. */
+      background: #161616;
+      overflow: hidden;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    body {
+      position: relative;
+    }
+    /* Canvas covers the whole viewport so the .riv artboard's gradient
+       extends edge-to-edge — no visible seam between canvas and page,
+       no color clash when the .riv switches between wait (purple) and
+       smile (teal) states.
+       pointer-events: none disables the .riv state machine's built-in click
+       listeners (which would otherwise toggle Click Trigger on user clicks
+       and desync our wait/smile tracking). Pointer events pass through to
+       the document, so the audio-unlock gesture handler still fires. */
+    #rive-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      z-index: 0;
+      pointer-events: none;
+    }
+    #stt-overlay {
+      position: absolute;
+      top: 12vh;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1;
+      color: #fff;
+      font-size: 1.5rem;
+      line-height: 1.4;
+      text-align: center;
+      max-width: 80vw;
+      min-height: 1.4em;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      pointer-events: none;
+      /* Drop shadow for readability across both purple and teal backdrops. */
+      text-shadow: 0 2px 10px rgba(0, 0, 0, 0.65);
+    }
+    #stt-overlay.visible {
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+  <div id="stt-overlay" aria-live="polite"></div>
+  <canvas id="rive-canvas"></canvas>
+
+  <script src="https://unpkg.com/@rive-app/webgl2@2.37.6"></script>
+  <script>
+    const FACE_FALLBACK_MS = 20000;   // emergency return to wait if TTS never ends
+    const STATE_MACHINE = "State Machine 1";
+    const ARTBOARD = "Artboard";
+    const CLICK_TRIGGER = "Click Trigger";
+    const FACE_WAIT = "wait_face";
+    const FACE_SMILE = "smile_face";
+
+    const canvas = document.getElementById("rive-canvas");
+    const overlay = document.getElementById("stt-overlay");
+
+    let clickTrigger = null;
+    let currentFace = FACE_WAIT;          // .riv boots in wait state — no click fired yet
+    let faceFallbackTimer = null;
+    let currentTtsAudio = null;
+
+    // Browser autoplay policy: any first user gesture anywhere on the document
+    // unlocks <audio>.play(). The earlier canvas-only listener missed users
+    // who spoke without clicking. State desync from a canvas click is handled
+    // separately by syncing currentFace from Rive's onStateChange callback.
+    function announceUnlock() {
+      console.log("[tts] audio playback unlocked");
+    }
+    ["click", "touchstart", "keydown"].forEach((ev) =>
+      document.addEventListener(ev, announceUnlock, { once: true }),
+    );
+
+    function playTts(text) {
+      if (!text) {
+        // Nothing to speak → return to wait immediately.
+        returnToWait();
+        return;
+      }
+      // Cancel any in-flight playback so consecutive replies don't pile up.
+      // (Don't returnToWait here — a new reply means we stay in smile_face.)
+      if (currentTtsAudio) {
+        try { currentTtsAudio.pause(); } catch {}
+        currentTtsAudio = null;
+      }
+      const audio = new Audio(`/tts?text=${encodeURIComponent(text)}`);
+      currentTtsAudio = audio;
+      audio.addEventListener("ended", () => {
+        if (currentTtsAudio === audio) {
+          currentTtsAudio = null;
+          returnToWait();
+        }
+      });
+      audio.addEventListener("error", () => {
+        console.warn("[tts] audio element error", audio.error);
+        if (currentTtsAudio === audio) {
+          currentTtsAudio = null;
+          returnToWait();
+        }
+      });
+      audio.play().then(
+        () => console.log(`[tts] playing (${text.length} chars)`),
+        (e) => {
+          console.warn("[tts] play() rejected — click the character once to unlock audio:", e.message);
+          if (currentTtsAudio === audio) {
+            currentTtsAudio = null;
+            returnToWait();
+          }
+        },
+      );
+    }
+
+    function setOverlay(text) {
+      overlay.textContent = text || "";
+      overlay.classList.toggle("visible", !!text);
+    }
+
+    // The .riv state machine is click-triggered: each Click Trigger fire toggles
+    // between wait_face and smile_face. We track the JS-intended state and only
+    // fire when transitioning, so we never double-fire or get stuck.
+    function setFace(target) {
+      if (currentFace === target) return;
+      if (!clickTrigger || typeof clickTrigger.fire !== "function") {
+        console.warn("[rive] Click Trigger not bound — cannot transition to", target);
+        return;
+      }
+      clickTrigger.fire();
+      const prev = currentFace;
+      currentFace = target;
+      console.log(`[face] ${prev} → ${target} (Click Trigger fired)`);
+    }
+
+    function clearFaceFallback() {
+      if (faceFallbackTimer) {
+        clearTimeout(faceFallbackTimer);
+        faceFallbackTimer = null;
+      }
+    }
+
+    function returnToWait() {
+      clearFaceFallback();
+      setFace(FACE_WAIT);
+      setOverlay("");
+    }
+
+    // Map a state-machine state name to our face label. Substring match keeps
+    // it forgiving across .riv naming variations (Sleep/Asleep pulse/Awake/etc).
+    function inferFace(stateName) {
+      const lc = String(stateName || "").toLowerCase();
+      if (lc.includes("awake") || lc.includes("smile")) return FACE_SMILE;
+      if (lc.includes("sleep") || lc.includes("wait") || lc.includes("asleep")) return FACE_WAIT;
+      return null;
+    }
+
+    // Cover on landscape (canvas fills viewport, no seams), Contain on portrait
+    // (character fits without horizontal cropping; page bg fills the top/bottom
+    // bands). Re-apply on resize so rotating a phone updates the fit live.
+    function pickLayout() {
+      const portrait = window.innerHeight > window.innerWidth;
+      return new rive.Layout({
+        fit: portrait ? rive.Fit.Contain : rive.Fit.Cover,
+        alignment: rive.Alignment.Center,
+      });
+    }
+
+    const r = new rive.Rive({
+      src: "riv_ai_button.riv",
+      canvas: canvas,
+      autoplay: true,
+      artboard: ARTBOARD,
+      stateMachines: STATE_MACHINE,
+      layout: pickLayout(),
+      onLoad: () => {
+        r.resizeDrawingSurfaceToCanvas();
+        const inputs = r.stateMachineInputs(STATE_MACHINE) || [];
+        clickTrigger = inputs.find((i) => i.name === CLICK_TRIGGER) || null;
+        console.log(
+          "[rive] state machine inputs:",
+          inputs.map((i) => i.name),
+          "→ Click Trigger bound:",
+          !!clickTrigger
+        );
+      },
+      onStateChange: (event) => {
+        // event.data is an array of newly-active state names (one per layer).
+        // Sync currentFace + body data-face so the page bg follows the state.
+        const states = event && event.data ? event.data : [];
+        for (const name of states) {
+          const inferred = inferFace(name);
+          if (inferred && currentFace !== inferred) {
+            console.log(`[rive] state '${name}' → currentFace=${inferred} (synced)`);
+            currentFace = inferred;
+            document.body.dataset.face = inferred;
+          }
+        }
+      },
+    });
+
+    window.addEventListener("resize", () => {
+      r.layout = pickLayout();
+      r.resizeDrawingSurfaceToCanvas();
+    });
+
+    const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${wsProto}//${location.host}/ws/client`;
+
+    function connectWs() {
+      console.log("[ws] connecting →", wsUrl);
+      const ws = new WebSocket(wsUrl);
+      ws.addEventListener("open", () => console.log("[ws] open"));
+      ws.addEventListener("error", (ev) => console.warn("[ws] error", ev));
+      ws.addEventListener("message", (ev) => {
+        let data;
+        try {
+          data = JSON.parse(ev.data);
+        } catch (e) {
+          console.warn("[ws] non-JSON frame", ev.data);
+          return;
+        }
+        if (data.type === "wakeup_debug") {
+          // High-frequency telemetry from the worker (~4 Hz). Use console.debug
+          // so it can be filtered out via the browser's log-level toggle.
+          console.debug(
+            `[debug] conf=${data.confidence?.toFixed(3)} level=${data.level?.toFixed(3)} thr=${data.threshold} chunk=${data.chunk}`
+          );
+        } else if (data.type === "wakeup_progress") {
+          const { stage, ...rest } = data;
+          console.log(`[progress] ${stage}`, rest);
+        } else {
+          console.log("[ws]", data.type, data);
+        }
+        if (data.type === "wakeup") {
+          setFace(FACE_SMILE);
+          setOverlay("");
+          // Safety net: if /stt_result or TTS never fires (network drop, API
+          // error, mic glitch), bounce back to wait_face so we don't sit in
+          // smile_face forever.
+          clearFaceFallback();
+          faceFallbackTimer = setTimeout(returnToWait, FACE_FALLBACK_MS);
+        } else if (data.type === "stt_result") {
+          console.log("[response]", {
+            reply: data.text,
+            transcription: data.transcription,
+            sequence: data.sequence,
+          });
+          setFace(FACE_SMILE);
+          setOverlay(data.text || "");
+          clearFaceFallback();
+          // playTts triggers returnToWait on ended/error/empty-text.
+          playTts(data.text || "");
+        }
+      });
+      ws.addEventListener("close", (ev) => {
+        console.log(`[ws] close code=${ev.code} reason=${ev.reason || "-"} → reconnect in 2s`);
+        setTimeout(connectWs, 2000);
+      });
+    }
+
+    connectWs();
+  </script>
+</body>
+</html>

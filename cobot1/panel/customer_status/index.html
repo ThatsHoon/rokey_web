@@ -1,0 +1,2303 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ROBO CHEF — 조리 현황</title>
+
+<!-- Fonts: Neo-Hanok Editorial typography (same as kiosk) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,700;0,9..144,900;1,9..144,400;1,9..144,700;1,9..144,900&family=IBM+Plex+Sans+KR:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500;700&family=Noto+Serif+KR:wght@400;700;900&display=swap" rel="stylesheet">
+
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script src="../firebase_config.js"></script>
+
+<style>
+/* ══════════════════════════════════════════════════════════════
+   DESIGN TOKENS — Neo-Hanok Editorial (kiosk 동일)
+═══════════════════════════════════════════════════════════════ */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+/* 키오스크 주문 → 이 페이지 진입 시 오른쪽에서 슬라이드 인 */
+@keyframes page-enter-from-right {
+  from { transform: translateX(100vw); opacity: 0; }
+  to   { transform: translateX(0);     opacity: 1; }
+}
+body { animation: page-enter-from-right 620ms cubic-bezier(.2, .8, .2, 1); }
+
+/* 에러 발생 → 키오스크로 되돌아갈 때 오른쪽으로 슬라이드 아웃 */
+html.page-exit-right body {
+  transform: translateX(100vw);
+  opacity: 0.4;
+  transition: transform 620ms cubic-bezier(.4, 0, .2, 1),
+              opacity   620ms cubic-bezier(.4, 0, .2, 1);
+  animation: none;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ERROR OVERLAY — phase='error' 시 표시
+═══════════════════════════════════════════════════════════════ */
+.err-overlay {
+  position: fixed; inset: 0;
+  background: rgba(11, 15, 24, .72);
+  backdrop-filter: blur(6px);
+  display: none;
+  align-items: center; justify-content: center;
+  z-index: 9999;
+  animation: errFadeIn .35s ease-out;
+}
+.err-overlay.show { display: flex; }
+@keyframes errFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.err-card {
+  background: #FDF7E7;
+  border: 2px solid #141410;
+  box-shadow: 10px 10px 0 #141410;
+  padding: 38px 46px 34px;
+  max-width: 480px;
+  text-align: center;
+  animation: errPop .45s cubic-bezier(.2, .9, .3, 1.2);
+}
+@keyframes errPop {
+  from { opacity: 0; transform: scale(.88) translateY(12px); }
+  to   { opacity: 1; transform: scale(1)   translateY(0);    }
+}
+
+.err-ico {
+  width: 64px; height: 64px;
+  margin: 0 auto 18px;
+  border-radius: 50%;
+  background: #B8341C;
+  color: #FDF7E7;
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Noto Serif KR', serif;
+  font-size: 40px; font-weight: 900;
+  line-height: 1;
+}
+.err-title {
+  font-family: 'Noto Serif KR', serif;
+  font-weight: 900;
+  font-size: 26px;
+  letter-spacing: -.02em;
+  color: #141410;
+  margin-bottom: 8px;
+}
+.err-sub {
+  font-family: 'IBM Plex Sans KR', sans-serif;
+  font-size: 14.5px;
+  color: #5A534A;
+  line-height: 1.55;
+  margin-bottom: 18px;
+}
+.err-redir {
+  font-family: 'IBM Plex Sans KR', sans-serif;
+  font-size: 12.5px;
+  color: #8A8275;
+  letter-spacing: .05em;
+}
+.err-redir b {
+  color: #B8341C;
+  font-family: 'Noto Serif KR', serif;
+  font-weight: 900;
+  font-size: 15px;
+  margin: 0 2px;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   CANCEL ORDER — 주문 취소 플로팅 버튼 + 확인 모달
+═══════════════════════════════════════════════════════════════ */
+.cancel-btn {
+  position: fixed;
+  right: 28px; bottom: 28px;
+  padding: 12px 22px 12px 18px;
+  background: #FDF7E7;
+  color: #141410;
+  border: 2px solid #141410;
+  box-shadow: 5px 5px 0 #141410;
+  font-family: 'Noto Serif KR', serif;
+  font-weight: 900;
+  font-size: 14px;
+  letter-spacing: .02em;
+  cursor: pointer;
+  z-index: 9998;           /* err-overlay(9999) 아래 */
+  display: none;
+  align-items: center; gap: 8px;
+  transition: transform .15s ease, box-shadow .15s ease, background .15s;
+}
+.cancel-btn.show { display: inline-flex; animation: cancelBtnIn .3s ease-out; }
+@keyframes cancelBtnIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+.cancel-btn:hover {
+  background: #B8341C; color: #FDF7E7;
+  transform: translate(-2px, -2px);
+  box-shadow: 7px 7px 0 #141410;
+}
+.cancel-btn::before {
+  content: '✕';
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 15px;
+  font-weight: 700;
+  opacity: .7;
+}
+
+/* 2차 확인 모달 (err-overlay 와 동일 구조, 버튼 2개) */
+.cancel-confirm {
+  position: fixed; inset: 0;
+  background: rgba(11, 15, 24, .72);
+  backdrop-filter: blur(6px);
+  display: none;
+  align-items: center; justify-content: center;
+  z-index: 9999;
+  animation: errFadeIn .35s ease-out;
+}
+.cancel-confirm.show { display: flex; }
+.cancel-confirm .err-card { max-width: 440px; }
+.cancel-confirm .err-ico { background: #141410; }
+.cancel-actions {
+  display: flex; gap: 12px; margin-top: 8px; justify-content: center;
+}
+.cancel-actions button {
+  padding: 11px 26px;
+  font-family: 'Noto Serif KR', serif;
+  font-weight: 900;
+  font-size: 14px;
+  border: 2px solid #141410;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+  letter-spacing: .02em;
+}
+.cancel-actions .btn-no {
+  background: #FDF7E7; color: #141410;
+}
+.cancel-actions .btn-no:hover {
+  background: #141410; color: #FDF7E7;
+}
+.cancel-actions .btn-yes {
+  background: #B8341C; color: #FDF7E7;
+  border-color: #B8341C;
+}
+.cancel-actions .btn-yes:hover {
+  background: #8F2313; border-color: #8F2313;
+}
+.cancel-actions .btn-done {
+  background: #5B6B3B; color: #FDF7E7; border-color: #5B6B3B;
+}
+.cancel-actions .btn-done:hover {
+  background: #3F4A28; border-color: #3F4A28;
+}
+
+:root {
+  color-scheme: light;
+
+  --paper:     #F2ECE0;
+  --paper-2:   #E8DFCF;
+  --bone:      #F8F2E3;
+  --cream:     #FDF7E7;
+  --ink:       #14100B;
+  --ink-2:     #2A2018;
+  --ink-soft:  #6B5F50;
+  --ink-faint: #A59682;
+
+  --brick:     #B8341C;
+  --brick-d:   #8A2410;
+  --brick-l:   #D85236;
+  --mustard:   #D4A72C;
+  --moss:      #5B6B3B;
+  --moss-l:    #A5BF76;
+
+  --border:    #D8CFBD;
+  --border-2:  #B8AC94;
+
+  --f-serif:   'Noto Serif KR', 'Fraunces', serif;
+  --f-sans:    'IBM Plex Sans KR', -apple-system, sans-serif;
+  --f-mono:    'JetBrains Mono', ui-monospace, monospace;
+  --f-eng:     'Fraunces', 'Noto Serif KR', serif;
+
+  --sh-1: 0 1px 3px rgba(20,16,11,.06);
+  --sh-2: 0 6px 24px rgba(20,16,11,.08);
+  --sh-3: 0 24px 60px rgba(20,16,11,.14);
+}
+
+html, body { height: 100%; }
+body {
+  font-family: var(--f-sans);
+  background: var(--paper);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  position: relative;
+  overflow-x: hidden;
+  height: 100vh;
+  display: flex; flex-direction: column;
+}
+
+/* Grain overlay */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background-image:
+    radial-gradient(circle at 18% 8%,  rgba(184,52,28,.045), transparent 55%),
+    radial-gradient(circle at 82% 92%, rgba(212,167,44,.04), transparent 60%),
+    url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.09 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 1;
+  mix-blend-mode: multiply;
+}
+body > * { position: relative; z-index: 2; }
+
+::selection { background: var(--ink); color: var(--cream); }
+
+/* ══════════════════════════════════════════════════════════════
+   HEADER (kiosk와 동일)
+═══════════════════════════════════════════════════════════════ */
+.hdr {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 13px 24px;
+  background: var(--ink);
+  color: var(--cream);
+  border-bottom: 1px solid rgba(253,247,231,.08);
+  flex-shrink: 0;
+  box-shadow: 0 2px 0 rgba(0,0,0,.4);
+}
+.hdr-left { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+
+.stamp {
+  position: relative;
+  width: 48px; height: 48px;
+  flex-shrink: 0;
+}
+.stamp svg {
+  width: 100%; height: 100%;
+  animation: rot 22s linear infinite;
+}
+.stamp-core {
+  position: absolute;
+  inset: 12px;
+  background: var(--brick);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--f-serif);
+  font-weight: 900;
+  color: var(--cream);
+  font-size: 13px;
+  letter-spacing: .5px;
+  box-shadow: inset 0 0 0 1px rgba(253,247,231,.15);
+}
+@keyframes rot { to { transform: rotate(360deg); } }
+
+.hdr-brand { line-height: 1; }
+.hdr-brand-kr {
+  font-family: var(--f-serif);
+  font-weight: 900;
+  font-size: 22px;
+  letter-spacing: -.02em;
+  color: var(--cream);
+}
+.hdr-brand-en {
+  font-family: var(--f-mono);
+  font-size: 9px;
+  letter-spacing: .24em;
+  color: rgba(253,247,231,.42);
+  margin-top: 4px;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+.ticker {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+}
+.ticker-track {
+  display: inline-flex;
+  white-space: nowrap;
+  gap: 28px;
+  animation: tick 38s linear infinite;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  color: rgba(253,247,231,.48);
+  letter-spacing: .15em;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+.ticker-track span::before { content: '◆ '; color: var(--mustard); }
+@keyframes tick {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+.hdr-right {
+  display: flex; align-items: center; gap: 14px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.hdr-status {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: .18em;
+  font-weight: 700;
+  color: var(--moss-l);
+  padding: 5px 11px;
+  border: 1px solid rgba(165,191,118,.35);
+  border-radius: 100px;
+  background: rgba(91,107,59,.1);
+}
+.hdr-status .pulse {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--moss-l);
+  animation: pulse 1.8s infinite;
+}
+@keyframes pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(165,191,118,.6); }
+  70%  { box-shadow: 0 0 0 7px rgba(165,191,118,0); }
+  100% { box-shadow: 0 0 0 0 rgba(165,191,118,0); }
+}
+.hdr-time {
+  font-family: var(--f-mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--cream);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  letter-spacing: .05em;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   NAV STRIP
+═══════════════════════════════════════════════════════════════ */
+.nav-strip {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 11px 24px;
+  background: var(--brick);
+  color: var(--cream);
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.nav-strip::before {
+  content: '';
+  position: absolute; inset: 0;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent 0 10px,
+    rgba(253,247,231,.03) 10px 11px
+  );
+  pointer-events: none;
+}
+.nav-strip-l { font-weight: 700; display: flex; align-items: center; gap: 10px; position: relative; }
+.nav-strip-l .nav-dot {
+  width: 6px; height: 6px; background: var(--mustard);
+  border-radius: 50%;
+}
+.nav-strip-r { display: flex; align-items: center; gap: 12px; position: relative; }
+.nav-strip-r a {
+  color: rgba(253,247,231,.55);
+  text-decoration: none;
+  transition: color .15s;
+  font-weight: 500;
+}
+.nav-strip-r a:hover { color: var(--cream); }
+.nav-strip-r a.active { color: var(--cream); font-weight: 700; }
+.nav-strip-r a.active::before {
+  content: '▸ ';
+  margin-right: 1px;
+  color: var(--mustard);
+}
+.nav-sep { color: rgba(253,247,231,.28); font-weight: 300; }
+
+/* ══════════════════════════════════════════════════════════════
+   MAIN — 편집용 layout
+═══════════════════════════════════════════════════════════════ */
+.main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 400px;
+  grid-template-rows: auto 1fr auto;
+  gap: 0;
+  min-height: 0;
+  max-width: 1680px;
+  margin: 0 auto;
+  width: 100%;
+  padding: 0;
+}
+
+/* Editorial hero band */
+.hero-band {
+  grid-column: 1 / -1;
+  padding: 8px 40px 8px;
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 24px;
+  align-items: center;
+  animation: rise .6s .1s both;
+}
+@keyframes rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: none; }
+}
+.hero-vlabel {
+  font-family: var(--f-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .18em;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  padding: 2px 0 2px 8px;
+  border-left: 2px solid var(--brick);
+  align-self: center;
+  white-space: nowrap;
+}
+.hero-main { min-width: 0; }
+.hero-sup {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: .28em;
+  color: var(--brick);
+  text-transform: uppercase;
+  margin-bottom: 2px;
+  font-weight: 700;
+  display: flex; align-items: center; gap: 10px;
+}
+.hero-sup::after {
+  content: '';
+  flex: 1; height: 1px;
+  background: linear-gradient(90deg, var(--brick), transparent);
+  max-width: 100px;
+}
+.hero-title {
+  font-family: var(--f-serif);
+  font-weight: 900;
+  font-size: clamp(24px, 2.6vw, 34px);
+  line-height: 1;
+  letter-spacing: -.03em;
+  color: var(--ink);
+}
+.hero-title em {
+  font-family: var(--f-eng);
+  font-weight: 900;
+  font-style: italic;
+  color: var(--brick);
+  letter-spacing: -.02em;
+  font-variation-settings: "opsz" 144;
+}
+.hero-meta {
+  text-align: right;
+  font-family: var(--f-mono);
+  font-size: 9px;
+  letter-spacing: .22em;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  line-height: 1.4;
+}
+.hero-meta strong { color: var(--ink); font-weight: 700; }
+.hero-meta .hm-count {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--cream);
+  background: var(--ink);
+  padding: 2px 8px;
+  border-radius: 3px;
+  display: inline-block;
+  letter-spacing: .12em;
+  margin-bottom: 2px;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   INFOGRAPHIC / ROBOT ARM SCREEN
+═══════════════════════════════════════════════════════════════ */
+.info-panel {
+  grid-column: 1;
+  grid-row: 2;
+  padding: 24px 40px 28px;
+  min-width: 0;
+  min-height: 0;
+  display: flex; flex-direction: column;
+}
+
+.screen-frame {
+  flex: 1;
+  min-height: 0;
+  background: #0B0F18;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  box-shadow: 8px 8px 0 var(--ink);
+}
+.screen-hdr {
+  padding: 11px 16px;
+  background: rgba(253,247,231,.04);
+  border-bottom: 1px solid rgba(253,247,231,.08);
+  display: flex; align-items: center; gap: 10px;
+  flex-shrink: 0;
+}
+.screen-hdr-l {
+  display: flex; align-items: center; gap: 10px;
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  color: var(--brick-l);
+}
+.screen-hdr-l .rec {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--brick-l);
+  animation: blink 1.2s ease-in-out infinite;
+}
+@keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+.screen-hdr-r {
+  margin-left: auto;
+  font-family: var(--f-mono);
+  font-size: 9px;
+  letter-spacing: .2em;
+  color: rgba(253,247,231,.4);
+  text-transform: uppercase;
+}
+
+#armVideo {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;   /* 프레임을 꽉 채움 (비율 유지, 크롭) */
+  background: #000;
+}
+
+.action-overlay {
+  position: absolute; bottom: 18px; left: 0; right: 0;
+  display: flex; justify-content: center;
+  pointer-events: none;
+}
+.action-badge {
+  background: rgba(11,15,24,.88);
+  border: 1px solid rgba(184,52,28,.4);
+  color: var(--brick-l);
+  font-family: var(--f-mono);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 8px 18px;
+  border-radius: 100px;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  backdrop-filter: blur(6px);
+  display: flex; align-items: center; gap: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.5);
+}
+.action-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--brick-l);
+  animation: adot 1.4s ease-in-out infinite;
+}
+@keyframes adot { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.7)} }
+
+/* ══════════════════════════════════════════════════════════════
+   STEPS PANEL — receipt style
+═══════════════════════════════════════════════════════════════ */
+.step-panel {
+  grid-column: 2;
+  grid-row: 2;
+  background: var(--cream);
+  border-left: 1px solid var(--border-2);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  min-height: 0;
+}
+/* perforated left edge */
+.step-panel::before {
+  content: '';
+  position: absolute;
+  top: 0; left: -7px; bottom: 0;
+  width: 14px;
+  background-image: radial-gradient(circle at 0 7px, var(--paper) 6.5px, transparent 7px);
+  background-size: 14px 16px;
+  background-repeat: repeat-y;
+  z-index: 2;
+}
+
+.step-hdr {
+  padding: 22px 24px 16px;
+  border-bottom: 2px solid var(--ink);
+  flex-shrink: 0;
+}
+.step-hdr-meta {
+  display: flex; align-items: center; justify-content: space-between;
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: .22em;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  font-weight: 700;
+}
+.step-hdr-badge {
+  background: var(--ink);
+  color: var(--cream);
+  padding: 3px 9px;
+  border-radius: 3px;
+  letter-spacing: .15em;
+}
+.step-hdr-title {
+  font-family: var(--f-serif);
+  font-weight: 900;
+  font-size: 26px;
+  letter-spacing: -.025em;
+  line-height: 1;
+  color: var(--ink);
+}
+.step-hdr-sub {
+  font-family: var(--f-eng);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin-top: 4px;
+}
+
+.steps-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 24px 22px;
+  min-height: 0;
+}
+
+.step-item {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 14px;
+  padding: 12px 0;
+  position: relative;
+  border-bottom: 1px dashed var(--border-2);
+  transition: opacity .3s;
+}
+.step-item:last-child { border-bottom: none; }
+.step-item.pending { opacity: .38; }
+
+.step-icon-wrap {
+  position: relative;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+.step-ico {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: var(--paper);
+  border: 2px solid var(--border-2);
+  color: var(--ink-soft);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--f-serif);
+  font-weight: 900;
+  font-size: 17px;
+  letter-spacing: -.02em;
+  transition: all .3s;
+  position: relative;
+  z-index: 2;
+}
+.step-item.done .step-ico {
+  background: var(--moss);
+  border-color: var(--moss);
+  color: var(--cream);
+}
+.step-item.done .step-ico::before { content: '✓'; }
+.step-item.done .step-ico .step-ico-num { display: none; }
+
+.step-item.active .step-ico {
+  background: var(--brick);
+  border-color: var(--brick);
+  color: var(--cream);
+  box-shadow: 0 0 0 4px rgba(184,52,28,.18);
+  animation: stepPulse 1.6s ease-in-out infinite;
+}
+@keyframes stepPulse {
+  0%,100% { box-shadow: 0 0 0 4px rgba(184,52,28,.18); }
+  50%     { box-shadow: 0 0 0 9px rgba(184,52,28,0); }
+}
+
+.step-conn {
+  position: absolute;
+  top: 48px; left: 21px;
+  width: 2px;
+  height: calc(100% - 36px);
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--border-2) 0 4px,
+    transparent 4px 8px
+  );
+  transition: background .4s;
+}
+.step-item.done .step-conn {
+  background: var(--moss);
+}
+
+.step-text { min-width: 0; padding-top: 4px; }
+.step-label {
+  font-family: var(--f-serif);
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: -.015em;
+  color: var(--ink);
+  line-height: 1.1;
+}
+.step-detail {
+  font-family: var(--f-sans);
+  font-size: 12px;
+  color: var(--ink-soft);
+  margin-top: 4px;
+  line-height: 1.4;
+}
+.step-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--f-mono);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 100px;
+  margin-top: 7px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.badge-done   { background: rgba(91,107,59,.15); color: var(--moss); }
+.badge-active {
+  background: var(--brick);
+  color: var(--cream);
+}
+.badge-active::before {
+  content: ''; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--cream);
+  animation: blink 1s infinite;
+}
+
+.sub-steps {
+  margin-top: 10px;
+  display: flex; flex-wrap: wrap; gap: 5px;
+}
+.sub-step {
+  font-family: var(--f-mono);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 100px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--ink-faint);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  transition: all .3s;
+}
+.sub-step.done {
+  background: rgba(91,107,59,.1);
+  border-color: var(--moss);
+  color: var(--moss);
+}
+.sub-step.active {
+  background: var(--brick);
+  border-color: var(--brick);
+  color: var(--cream);
+  animation: subpulse 1.4s ease-in-out infinite;
+}
+@keyframes subpulse {
+  0%,100% { transform: scale(1); }
+  50%     { transform: scale(1.05); }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   PROGRESS BAR — bottom strip
+═══════════════════════════════════════════════════════════════ */
+.prog-panel {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  background: var(--ink);
+  color: var(--cream);
+  padding: 16px 40px;
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 22px;
+  align-items: center;
+  border-top: 1px solid rgba(253,247,231,.08);
+  flex-shrink: 0;
+}
+.prog-label {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  color: var(--mustard);
+  display: flex; align-items: center; gap: 8px;
+  white-space: nowrap;
+}
+.prog-label .pl-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--mustard);
+}
+.prog-track {
+  flex: 1;
+  height: 10px;
+  background: rgba(253,247,231,.08);
+  position: relative;
+  overflow: hidden;
+}
+.prog-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--brick), var(--brick-l) 60%, var(--mustard));
+  transition: width .6s cubic-bezier(.2,.8,.2,1);
+  position: relative;
+}
+.prog-fill::after {
+  content: '';
+  position: absolute; top: 0; right: 0; bottom: 0; width: 3px;
+  background: var(--cream);
+  box-shadow: 0 0 12px var(--cream);
+}
+.prog-pct {
+  font-family: var(--f-serif);
+  font-weight: 900;
+  font-size: 32px;
+  line-height: 1;
+  color: var(--mustard);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.03em;
+  white-space: nowrap;
+  min-width: 78px;
+  text-align: right;
+}
+.eta-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding-left: 22px;
+  border-left: 1px solid rgba(253,247,231,.14);
+  white-space: nowrap;
+}
+.eta-label {
+  font-family: var(--f-mono);
+  font-size: 9px;
+  letter-spacing: .22em;
+  color: rgba(253,247,231,.45);
+  text-transform: uppercase;
+  font-weight: 700;
+}
+.eta-val {
+  font-family: var(--f-mono);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--cream);
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
+  letter-spacing: .05em;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   RESPONSIVE
+═══════════════════════════════════════════════════════════════ */
+@media (max-width: 1023px) {
+  body { overflow-y: auto; height: auto; }
+  .main {
+    display: flex;
+    flex-direction: column;
+    min-height: unset;
+  }
+  .hero-band {
+    padding: 18px 20px 16px;
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  .hero-vlabel { display: none; }
+  .hero-meta {
+    text-align: left;
+    margin-top: 4px;
+  }
+  .info-panel { padding: 18px 18px; }
+  .screen-frame { min-height: 360px; height: 60vh; box-shadow: 4px 4px 0 var(--ink); }
+  .step-panel {
+    grid-column: 1;
+    border-left: none;
+    border-top: 1px solid var(--border-2);
+  }
+  .step-panel::before {
+    left: 0; right: 0; top: -7px; bottom: auto;
+    width: auto; height: 14px;
+    background-image: radial-gradient(circle at 7px 0, var(--paper) 6.5px, transparent 7px);
+    background-size: 16px 14px;
+    background-repeat: repeat-x;
+  }
+  .step-hdr { padding: 22px 20px 14px; }
+  .steps-body { padding: 14px 20px 22px; max-height: none; }
+  .prog-panel {
+    padding: 14px 20px;
+    grid-template-columns: auto 1fr auto;
+    grid-template-rows: auto auto;
+    gap: 10px 16px;
+  }
+  .prog-label { grid-column: 1 / -1; }
+  .prog-track { grid-column: 1 / 3; grid-row: 2; }
+  .prog-pct { grid-column: 3; grid-row: 2; font-size: 24px; min-width: 56px; }
+  .eta-box { display: none; }
+}
+@media (max-width: 560px) {
+  .hdr { gap: 10px; padding: 11px 16px; }
+  .hdr-brand-kr { font-size: 17px; }
+  .hdr-brand-en { display: none; }
+  .ticker { display: none; }
+  .nav-strip { padding: 9px 16px; font-size: 10px; letter-spacing: .14em; }
+  .nav-strip-l { display: none; }
+  .nav-strip-r { margin-left: auto; }
+  .hero-title { font-size: 28px; }
+  .step-hdr-title { font-size: 22px; }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--ink-soft); }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════ HEADER ═══════════════════ -->
+<header class="hdr">
+  <div class="hdr-left">
+    <div class="stamp">
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <defs>
+          <path id="stamp-circle" d="M 50 50 m -38 0 a 38 38 0 1 1 76 0 a 38 38 0 1 1 -76 0"/>
+        </defs>
+        <text fill="#FDF7E7" font-family="JetBrains Mono, monospace" font-size="9" font-weight="500" letter-spacing="1.5">
+          <textPath href="#stamp-circle">◆ ROBO CHEF ◆ 로보셰프 ◆ ROBO CHEF ◆ 로보셰프 ◆</textPath>
+        </text>
+      </svg>
+      <div class="stamp-core">RC</div>
+    </div>
+    <div class="hdr-brand">
+      <div class="hdr-brand-kr">로보셰프</div>
+      <div class="hdr-brand-en">Automated Kitchen · No. 001</div>
+    </div>
+  </div>
+  <div class="ticker" aria-hidden="true">
+    <div class="ticker-track">
+      <span>실시간 조리 현황 모니터</span>
+      <span>로봇 팔이 직접 요리합니다</span>
+      <span>서울 성수동 지점 · NO 001</span>
+      <span>ROBO CHEF · EST 2026</span>
+      <span>실시간 조리 현황 모니터</span>
+      <span>로봇 팔이 직접 요리합니다</span>
+      <span>서울 성수동 지점 · NO 001</span>
+      <span>ROBO CHEF · EST 2026</span>
+    </div>
+  </div>
+  <div class="hdr-right">
+    <div class="hdr-status"><span class="pulse"></span>LIVE</div>
+    <div class="hdr-time" id="orderNum">#0000</div>
+  </div>
+</header>
+
+<!-- ═══════════════════ NAV STRIP ═══════════════════ -->
+<nav class="nav-strip">
+  <div class="nav-strip-l">
+    <span class="nav-dot"></span>
+    §&nbsp;002 · 실시간 조리 현황 · Kitchen Feed
+  </div>
+  <div class="nav-strip-r">
+    <a href="https://kiosk.thatshoon.com">주문</a>
+    <span class="nav-sep">/</span>
+    <a href="https://status.thatshoon.com" class="active">조리 현황</a>
+    <span class="nav-sep">/</span>
+    <a href="https://admin.thatshoon.com">관리자</a>
+  </div>
+</nav>
+
+<!-- ═══════════════════ MAIN ═══════════════════ -->
+<div class="main">
+
+  <!-- Hero band -->
+  <div class="hero-band">
+    <div class="hero-vlabel">LIVE · 20·26</div>
+    <div class="hero-main">
+      <div class="hero-sup">KITCHEN FEED · 실시간 조리</div>
+      <h1 class="hero-title">지금 <em>조리중.</em></h1>
+    </div>
+    <div class="hero-meta">
+      <span class="hm-count" id="orderNumMeta">#0000</span><br>
+      <strong>ORDER</strong><br>
+      CURRENTLY COOKING
+    </div>
+  </div>
+
+  <!-- Infographic / Video screen (dummy loop) -->
+  <div class="info-panel">
+    <div class="screen-frame">
+      <div class="screen-hdr">
+        <div class="screen-hdr-l">
+          <span class="rec"></span>
+          ROBO ARM
+        </div>
+        <div class="screen-hdr-r">CAM 001 · KITCHEN</div>
+      </div>
+      <video id="armVideo"
+             src="video/status.mp4"
+             autoplay muted loop playsinline preload="auto"></video>
+      <div class="action-overlay">
+        <div class="action-badge" id="actionBadge">
+          <div class="action-dot"></div>
+          <span id="actionLabel">시스템 대기 중</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Steps receipt -->
+  <aside class="step-panel">
+    <div class="step-hdr">
+      <div class="step-hdr-meta">
+        <span>PROGRESS · 진행상황</span>
+        <span class="step-hdr-badge">06&nbsp;STEPS</span>
+      </div>
+      <div class="step-hdr-title">조리 진행 현황</div>
+      <div class="step-hdr-sub">Robo Chef · cooking status</div>
+    </div>
+    <div class="steps-body" id="stepsBody"></div>
+  </aside>
+
+  <!-- Progress bar bottom -->
+  <div class="prog-panel">
+    <div class="prog-label">
+      <span class="pl-dot"></span>
+      OVERALL · 전체 진행률
+    </div>
+    <div class="prog-track">
+      <div class="prog-fill" id="progFill" style="width:0%"></div>
+    </div>
+    <div class="prog-pct" id="progPct">0%</div>
+    <div class="eta-box">
+      <div class="eta-label">ETA · 예상 잔여</div>
+      <div class="eta-val" id="etaVal">--:--</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══════════════════ ERROR OVERLAY ═══════════════════ -->
+<div class="err-overlay" id="errOverlay">
+  <div class="err-card">
+    <div class="err-ico">!</div>
+    <div class="err-title">문제가 발생하였습니다</div>
+    <div class="err-sub">잠시 후 다시 주문해주세요.</div>
+    <div class="err-redir"><b id="errRedirSec">3</b>초 후 주문 화면으로 돌아갑니다…</div>
+  </div>
+</div>
+
+<!-- ═══════════════════ DONE OVERLAY (요리 완료 안내) ═══════════════════ -->
+<div class="err-overlay" id="doneOverlay">
+  <div class="err-card">
+    <div class="err-ico" style="background:#5B6B3B">✓</div>
+    <div class="err-title">요리가 완료되었습니다</div>
+    <div class="err-sub">감사합니다</div>
+    <div class="err-redir"><b id="doneRedirSec">5</b>초 후 주문 화면으로 돌아갑니다…</div>
+    <div class="cancel-actions" style="margin-top:16px">
+      <button class="btn-yes btn-done" onclick="confirmDone()">확인</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ CANCEL BUTTON + CONFIRM MODAL ═══════════════════ -->
+<button class="cancel-btn" id="cancelBtn" onclick="openCancelConfirm()">
+  주문 취소
+</button>
+
+<div class="cancel-confirm" id="cancelConfirm">
+  <div class="err-card">
+    <div class="err-ico">?</div>
+    <div class="err-title">주문을 취소하시겠어요?</div>
+    <div class="err-sub">취소 후에는 되돌릴 수 없습니다.</div>
+    <div class="cancel-actions">
+      <button class="btn-no"  onclick="closeCancelConfirm()">계속 진행</button>
+      <button class="btn-yes" onclick="confirmCancel()">주문 취소</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════════
+//  COOKING STEPS
+// ════════════════════════════════════════════════════════════
+const STEPS = [
+  {label:'주문 접수',   detail:'주문이 시스템에 접수되었습니다',       ico:'clipboard-list', dur:3000,  subs:[]},
+  {label:'레시피 로드', detail:'조리 레시피 불러오는 중',              ico:'book-open',      dur:4000,  subs:[]},
+  {label:'재료 준비',   detail:'재료 위치로 로봇 팔 이동 중',           ico:'package',        dur:6000,  subs:[]},
+  {label:'조리 진행',   detail:'레시피에 따라 조리를 수행합니다',        ico:'bot',            dur:18000, subs:[]},
+  {label:'플레이팅',    detail:'완성된 재료를 그릇에 담는 중',           ico:'utensils',       dur:6000,  subs:[]},
+  {label:'준비 완료',   detail:'맛있게 드세요! 수령구로 이동해 주세요', ico:'circle-check',   dur:0,     subs:[]},
+];
+
+const STEP_LABELS = ['대기 중', '레시피 스캔 중', '재료 픽업 이동', '조리 수행 중', '플레이팅 중', '완료!'];
+const TOTAL_DUR = STEPS.reduce((s,st) => s + st.dur, 0);
+
+let elapsed=0, curStep=0, stepElapsed=0, subIdx=0;
+let lastTs=null, animating=true;
+
+// ════════════════════════════════════════════════════════════
+//  ROBOT ARM CANVAS INFOGRAPHIC
+//  ※ 더미 영상(<video id="armVideo">) 으로 대체 후 canvas 미사용.
+//     아래 canvas 관련 코드는 이제 no-op (아직 남겨두어 레거시 참조 보존).
+// ════════════════════════════════════════════════════════════
+const canvas = document.getElementById('armCanvas');
+const ctx    = canvas ? canvas.getContext('2d') : null;
+
+// 팔 각도 (smooth lerp)
+let armAngles = { j1:-85, j2:-95, j3:50 };
+
+// ─── 시네마틱 조리 루프 ───────────────────────────────────────
+// armCanvas 애니메이션은 실제 조리 진행(curStep)과 독립적으로 재생됨.
+// 단말 앞에 있는 고객이 항상 "로봇이 요리 중"인 모습을 볼 수 있게 하는
+// 순수 데커레이션 루프 (약 32초).
+//
+// station: 0=재료 트레이, 1=인덕션, 2=플레이팅 존, null=이동 중/홈
+// tool:    gripper-open | gripper-closed | gripper-item | gripper-dish | spatula | shaker
+const CINE = [
+  { dur:2000, pose:{j1:-85, j2:-95, j3:50},  station:null, tool:'gripper-open',   action:'idle' },
+  { dur:1800, pose:{j1:-138,j2:55,  j3:-28}, station:0,    tool:'gripper-open',   action:'reach' },
+  { dur:1200, pose:{j1:-140,j2:65,  j3:-32}, station:0,    tool:'gripper-closed', action:'grab',    particle:'pickup' },
+  { dur:1400, pose:{j1:-125,j2:-15, j3:-12}, station:null, tool:'gripper-item',   action:'lift' },
+  { dur:2200, pose:{j1:-102,j2:25,  j3:10},  station:1,    tool:'gripper-item',   action:'transfer' },
+  { dur:1200, pose:{j1:-102,j2:40,  j3:20},  station:1,    tool:'gripper-open',   action:'drop',    particle:'splash' },
+  { dur:1000, pose:{j1:-95, j2:-55, j3:5},   station:null, tool:'gripper-open',   action:'swap1' },
+  { dur:4000, pose:{j1:-100,j2:28,  j3:15},  station:1,    tool:'spatula',        action:'stir',    particle:'steam+' },
+  { dur:1100, pose:{j1:-80, j2:-35, j3:-18}, station:null, tool:'shaker',         action:'reach-salt' },
+  { dur:2400, pose:{j1:-110,j2:8,   j3:-2},  station:1,    tool:'shaker',         action:'season',  particle:'salt' },
+  { dur:1000, pose:{j1:-90, j2:-55, j3:5},   station:null, tool:'gripper-open',   action:'swap2' },
+  { dur:1500, pose:{j1:-105,j2:18,  j3:18},  station:1,    tool:'gripper-dish',   action:'lift-dish' },
+  { dur:2400, pose:{j1:-55, j2:-48, j3:-12}, station:2,    tool:'gripper-dish',   action:'to-plate' },
+  { dur:1400, pose:{j1:-50, j2:-40, j3:-22}, station:2,    tool:'gripper-open',   action:'place' },
+  { dur:2000, pose:{j1:-60, j2:-55, j3:-10}, station:2,    tool:'shaker',         action:'garnish', particle:'herbs' },
+  { dur:2000, pose:{j1:-85, j2:-95, j3:50},  station:null, tool:'gripper-open',   action:'home' },
+];
+const CINE_TOTAL = CINE.reduce((s,c) => s + c.dur, 0);
+
+let cineIdx = 0;
+let cineStart = 0;      // ms timestamp of scene start
+let cineT = 0;          // ms into current scene
+let cineLoopCount = 0;  // counts full cycles (used for plate persistence)
+
+function advanceCine(now) {
+  if (!cineStart) cineStart = now;
+  cineT = now - cineStart;
+  const scene = CINE[cineIdx];
+  if (cineT >= scene.dur) {
+    cineIdx = (cineIdx + 1) % CINE.length;
+    if (cineIdx === 0) cineLoopCount++;
+    cineStart = now;
+    cineT = 0;
+  }
+}
+
+// ─── 파티클 시스템 ──────────────────────────────────────────
+const particles = [];
+function spawnParticle(type, x, y, count = 1) {
+  for (let i = 0; i < count; i++) {
+    let p = null;
+    if (type === 'steam') {
+      p = { x:x+(Math.random()-.5)*14, y,
+            vx:(Math.random()-.5)*0.5, vy:-(0.6+Math.random()*1.1),
+            alpha:.5+Math.random()*.3, size:3+Math.random()*3.5, life:1,
+            color:'230,235,245' };
+    } else if (type === 'steam+') {
+      p = { x:x+(Math.random()-.5)*22, y,
+            vx:(Math.random()-.5)*0.9, vy:-(0.8+Math.random()*1.7),
+            alpha:.6+Math.random()*.3, size:4+Math.random()*6, life:1.2,
+            color:'230,235,245' };
+    } else if (type === 'splash') {
+      p = { x:x+(Math.random()-.5)*6, y,
+            vx:(Math.random()-.5)*3.2, vy:-(1.3+Math.random()*1.8),
+            alpha:1, size:1.8+Math.random()*2, life:1,
+            color:'216,82,54', gravity:0.2 };
+    } else if (type === 'salt') {
+      p = { x:x+(Math.random()-.5)*10, y,
+            vx:(Math.random()-.5)*0.6, vy:1.2+Math.random()*1.6,
+            alpha:1, size:1.2+Math.random()*1, life:0.7,
+            color:'253,247,231', gravity:0.05 };
+    } else if (type === 'herbs') {
+      p = { x:x+(Math.random()-.5)*12, y,
+            vx:(Math.random()-.5)*0.7, vy:0.7+Math.random()*1.3,
+            alpha:1, size:1.4+Math.random()*1.4, life:0.85,
+            color:'165,191,118', gravity:0.04 };
+    } else if (type === 'pickup') {
+      p = { x, y,
+            vx:(Math.random()-.5)*1.5, vy:-(0.3+Math.random()*1.3),
+            alpha:1, size:2+Math.random()*2, life:0.55,
+            color:'212,167,44' };
+    } else if (type === 'spark') {
+      p = { x, y,
+            vx:(Math.random()-.5)*2.6, vy:-(0.6+Math.random()*2.2),
+            alpha:1, size:1+Math.random()*1.2, life:0.5,
+            color:'255,220,120', gravity:0.09 };
+    }
+    if (p) particles.push(p);
+  }
+}
+
+// ─── Math helpers ──────────────────────────────────────────
+const lerp  = (a,b,t) => a + (b-a)*t;
+const toRad = d => d * Math.PI / 180;
+
+function fk(base, a1, a2, a3, l1=90, l2=78, l3=52) {
+  const p0 = { x:base.x, y:base.y };
+  const r1 = toRad(a1);
+  const p1 = { x: p0.x + l1*Math.cos(r1), y: p0.y + l1*Math.sin(r1) };
+  const r2 = toRad(a1 + a2);
+  const p2 = { x: p1.x + l2*Math.cos(r2), y: p1.y + l2*Math.sin(r2) };
+  const r3 = toRad(a1 + a2 + a3);
+  const p3 = { x: p2.x + l3*Math.cos(r3), y: p2.y + l3*Math.sin(r3) };
+  return { p0, p1, p2, p3, r3 };
+}
+
+// ─── 메인 drawFrame ─────────────────────────────────────────
+function drawFrame(ts) {
+  if (!canvas || !ctx) return;     // 더미 영상 대체 모드 — canvas 없으면 no-op
+  requestAnimationFrame(drawFrame);
+
+  const W = canvas.clientWidth;
+  const H = canvas.clientHeight;
+  const DPR = window.devicePixelRatio || 1;
+  if (canvas.width !== W*DPR || canvas.height !== H*DPR) {
+    canvas.width  = W * DPR;
+    canvas.height = H * DPR;
+    ctx.scale(DPR, DPR);
+  }
+
+  ctx.clearRect(0, 0, W, H);
+  advanceCine(ts);
+  const scene = CINE[cineIdx];
+
+  // ═══ BACKGROUND ═══
+  const bgGrad = ctx.createLinearGradient(0,0,0,H);
+  bgGrad.addColorStop(0, '#0A0E18');
+  bgGrad.addColorStop(1, '#141926');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0,0,W,H);
+
+  // 상단 스포트라이트
+  ctx.save();
+  const spot = ctx.createRadialGradient(W*0.5, -30, 0, W*0.5, -30, H*0.9);
+  spot.addColorStop(0, 'rgba(212,167,44,.08)');
+  spot.addColorStop(0.5, 'rgba(212,167,44,.03)');
+  spot.addColorStop(1, 'transparent');
+  ctx.fillStyle = spot;
+  ctx.fillRect(0,0,W,H);
+  ctx.restore();
+
+  // 배경 보케 (드리프트)
+  ctx.save();
+  const bokehSeeds = [
+    {sx:0.08, sy:0.18, r:20, c:'rgba(56,189,248,.06)'},
+    {sx:0.92, sy:0.12, r:16, c:'rgba(212,167,44,.08)'},
+    {sx:0.38, sy:0.08, r:14, c:'rgba(184,52,28,.06)'},
+    {sx:0.72, sy:0.22, r:18, c:'rgba(165,191,118,.05)'},
+    {sx:0.50, sy:0.30, r:26, c:'rgba(212,167,44,.04)'},
+  ];
+  bokehSeeds.forEach((b,i) => {
+    const bx = W * b.sx + Math.sin(ts * 0.0003 + i*1.3) * 6;
+    const by = H * b.sy + Math.cos(ts * 0.0004 + i*1.7) * 5;
+    const bg = ctx.createRadialGradient(bx, by, 0, bx, by, b.r);
+    bg.addColorStop(0, b.c);
+    bg.addColorStop(1, 'transparent');
+    ctx.fillStyle = bg;
+    ctx.beginPath(); ctx.arc(bx, by, b.r, 0, Math.PI*2); ctx.fill();
+  });
+  ctx.restore();
+
+  // 그리드
+  ctx.save();
+  ctx.strokeStyle = 'rgba(253,247,231,.035)';
+  ctx.lineWidth = 1;
+  const gSize = 28;
+  for (let x=0; x<W; x+=gSize) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+  for (let y=0; y<H; y+=gSize) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+  ctx.restore();
+
+  // 수평 스캔라인 (10초 주기)
+  ctx.save();
+  const scanPeriod = 10000;
+  const scanY = ((ts % scanPeriod) / scanPeriod) * (H + 80) - 40;
+  const sg = ctx.createLinearGradient(0, scanY-40, 0, scanY+40);
+  sg.addColorStop(0, 'transparent');
+  sg.addColorStop(0.5, 'rgba(184,52,28,.08)');
+  sg.addColorStop(1, 'transparent');
+  ctx.fillStyle = sg;
+  ctx.fillRect(0, scanY-40, W, 80);
+  ctx.restore();
+
+  // 플로어
+  ctx.save();
+  const floorY = H * 0.78;
+  const floorGrad = ctx.createLinearGradient(0, floorY-10, 0, floorY+30);
+  floorGrad.addColorStop(0, 'rgba(184,52,28,.09)');
+  floorGrad.addColorStop(1, 'transparent');
+  ctx.fillStyle = floorGrad;
+  ctx.fillRect(0, floorY-10, W, 40);
+  // dashed floor line
+  ctx.strokeStyle = 'rgba(184,52,28,.22)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([6,6]);
+  ctx.beginPath(); ctx.moveTo(0,floorY); ctx.lineTo(W,floorY); ctx.stroke();
+  ctx.restore();
+
+  // ═══ STATIONS ═══
+  const stY = floorY - 20;
+  const stations = [
+    { x: W*0.18, label:'재료 트레이',  sublabel:'ST_01 · INGREDIENTS', color:'#B8341C', icon:'box' },
+    { x: W*0.5,  label:'인덕션 조리대', sublabel:'CZ_01 · INDUCTION',   color:'#D4A72C', icon:'flame' },
+    { x: W*0.82, label:'플레이팅 존',  sublabel:'PT_01 · PLATE',       color:'#A5BF76', icon:'utensils' },
+  ];
+  const activeStation = scene.station;
+
+  // 지속적인 요소: 인덕션은 항상 가열 중 (은은한 글로우 + 연속 증기)
+  const inductionAlwaysHot = true;
+
+  stations.forEach((st, idx) => {
+    const isActive = idx === activeStation;
+    const isInduction = idx === 1;
+    const baseGlow = isInduction && inductionAlwaysHot ? 0.4 : 0;
+    const glowAlpha = isActive ? 1 : baseGlow;
+
+    ctx.save();
+    // 외부 글로우
+    if (glowAlpha > 0) {
+      const g = ctx.createRadialGradient(st.x, stY, 0, st.x, stY, 70);
+      const hex = st.color;
+      const glowHex = hex + Math.floor(glowAlpha * 0x33).toString(16).padStart(2,'0');
+      g.addColorStop(0, glowHex);
+      g.addColorStop(1, 'transparent');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(st.x, stY, 70, 0, Math.PI*2);
+      ctx.fill();
+    }
+
+    // 바디
+    ctx.fillStyle = isActive ? st.color + '30' : (isInduction ? 'rgba(212,167,44,.08)' : 'rgba(253,247,231,.05)');
+    ctx.strokeStyle = isActive ? st.color + '80' : (isInduction ? 'rgba(212,167,44,.3)' : 'rgba(253,247,231,.12)');
+    ctx.lineWidth = isActive ? 1.5 : 1;
+    ctx.beginPath();
+    ctx.roundRect(st.x-42, stY-20, 84, 40, 3);
+    ctx.fill(); ctx.stroke();
+
+    // 코너 마커
+    ctx.strokeStyle = isActive ? st.color : 'rgba(253,247,231,.25)';
+    ctx.lineWidth = 1.4;
+    const ml = 6;
+    [
+      [st.x-42, stY-20, 1, 1], [st.x+42, stY-20, -1, 1],
+      [st.x-42, stY+20, 1, -1], [st.x+42, stY+20, -1, -1],
+    ].forEach(([cx,cy,sx,sy]) => {
+      ctx.beginPath();
+      ctx.moveTo(cx, cy + sy*ml); ctx.lineTo(cx, cy); ctx.lineTo(cx + sx*ml, cy);
+      ctx.stroke();
+    });
+
+    // 아이콘
+    ctx.strokeStyle = isActive ? st.color : (isInduction ? 'rgba(212,167,44,.65)' : 'rgba(253,247,231,.4)');
+    ctx.lineWidth = 1.8; ctx.lineCap = 'round';
+    if (st.icon === 'box') {
+      ctx.strokeRect(st.x-11, stY-10, 22, 18);
+      ctx.beginPath(); ctx.moveTo(st.x-11,stY-4); ctx.lineTo(st.x+11,stY-4); ctx.stroke();
+    } else if (st.icon === 'flame') {
+      // 항상 펄럭이는 불꽃
+      const flameT = ts * 0.006;
+      ctx.beginPath();
+      ctx.moveTo(st.x, stY+8);
+      ctx.bezierCurveTo(
+        st.x-12, stY + Math.sin(flameT)*1.5,
+        st.x-8,  stY-12 + Math.cos(flameT*1.2)*1,
+        st.x,    stY-10 + Math.sin(flameT*1.5)*2
+      );
+      ctx.bezierCurveTo(
+        st.x+2,  stY-16 - Math.cos(flameT)*1,
+        st.x+7,  stY-10 + Math.sin(flameT)*1.5,
+        st.x+4,  stY-2
+      );
+      ctx.bezierCurveTo(st.x+14,stY-8,st.x+10,stY+2,st.x,stY+8);
+      ctx.stroke();
+      // 내부 밝은 불꽃
+      ctx.strokeStyle = 'rgba(255,220,120,.55)';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(st.x, stY+5);
+      ctx.bezierCurveTo(st.x-5, stY, st.x-3, stY-6, st.x, stY-5);
+      ctx.bezierCurveTo(st.x+3, stY-8, st.x+5, stY-4, st.x+2, stY);
+      ctx.bezierCurveTo(st.x+6, stY-2, st.x+4, stY+4, st.x, stY+5);
+      ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.moveTo(st.x-6,stY-10); ctx.lineTo(st.x-6,stY+10); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(st.x+6,stY-10); ctx.lineTo(st.x+6,stY+10); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(st.x-9,stY-10); ctx.lineTo(st.x-9,stY-2); ctx.lineTo(st.x-3,stY-2); ctx.lineTo(st.x-3,stY-10); ctx.stroke();
+    }
+
+    // 레이블
+    ctx.fillStyle = isActive ? st.color : 'rgba(253,247,231,.5)';
+    ctx.font = `600 10px 'IBM Plex Sans KR', sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText(st.label, st.x, stY + 32);
+    ctx.fillStyle = 'rgba(253,247,231,.28)';
+    ctx.font = `9px 'JetBrains Mono', monospace`;
+    ctx.fillText(st.sublabel, st.x, stY + 44);
+
+    ctx.restore();
+  });
+
+  // ═══ 조리대 냄비 내용물 (항상 보임 — 재료가 들어간 이후 모습) ═══
+  // 루프 중 drop 이후 ~ to-plate 사이에만 내용물 표시
+  const potContentsIdx = [6,7,8,9,10,11];  // swap1, stir, reach-salt, season, swap2, lift-dish
+  const showPotContents = potContentsIdx.includes(cineIdx);
+  if (showPotContents) {
+    ctx.save();
+    // 냄비 안 소스
+    ctx.fillStyle = 'rgba(138,36,16,.85)';
+    ctx.beginPath();
+    ctx.ellipse(stations[1].x, stY-4, 18, 5, 0, 0, Math.PI*2);
+    ctx.fill();
+    // 끓어오르는 버블
+    for (let i = 0; i < 3; i++) {
+      const phase = ts * 0.003 + i * 2.1;
+      const bx = stations[1].x + Math.sin(phase) * 12;
+      const by = stY - 4 + Math.cos(phase * 1.4) * 1.8;
+      const br = 1.3 + Math.sin(phase * 2) * 0.4;
+      ctx.fillStyle = 'rgba(216,82,54,.75)';
+      ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI*2); ctx.fill();
+    }
+    // 표면 하이라이트
+    ctx.fillStyle = 'rgba(255,220,120,.25)';
+    ctx.beginPath();
+    ctx.ellipse(stations[1].x - 5, stY - 6, 6, 1.2, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // ═══ 플레이트 위 완성 요리 (place 이후 ~ 루프 끝 + 다음 사이클 중 일부) ═══
+  const plateIdx = [13, 14, 15];  // place, garnish, home
+  const showPlate = plateIdx.includes(cineIdx) || (cineIdx === 0 && cineLoopCount > 0 && cineT < 1500);
+  if (showPlate) {
+    ctx.save();
+    const px = stations[2].x;
+    // 접시
+    ctx.fillStyle = '#F2ECE0';
+    ctx.strokeStyle = '#B8AC94';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.ellipse(px, stY-3, 20, 5.5, 0, 0, Math.PI*2);
+    ctx.fill(); ctx.stroke();
+    // 접시 림 내부
+    ctx.strokeStyle = 'rgba(184,172,148,.5)';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.ellipse(px, stY-3, 16, 4, 0, 0, Math.PI*2);
+    ctx.stroke();
+    // 요리 (브릭 블롭)
+    ctx.fillStyle = '#8A2410';
+    ctx.beginPath();
+    ctx.ellipse(px, stY-5, 11, 3.2, 0, 0, Math.PI*2);
+    ctx.fill();
+    // 하이라이트
+    ctx.fillStyle = 'rgba(216,82,54,.7)';
+    ctx.beginPath();
+    ctx.ellipse(px-2, stY-6, 5, 1.2, 0, 0, Math.PI*2);
+    ctx.fill();
+    // 가니쉬 (garnish 이후)
+    if (cineIdx === 14 || cineIdx === 15 || (cineIdx === 0 && cineLoopCount > 0)) {
+      ctx.fillStyle = 'rgba(165,191,118,.95)';
+      for (let i = 0; i < 6; i++) {
+        const seed = i * 1.31;
+        const hx = px + Math.sin(seed*2) * 9;
+        const hy = stY - 6 + Math.cos(seed*3) * 1.2;
+        ctx.beginPath(); ctx.arc(hx, hy, 1.1, 0, Math.PI*2); ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  // ═══ PARTICLES 스폰 ═══
+  // 지속적: 인덕션에서 항상 증기 (항상 요리 중)
+  if (Math.random() < 0.35) {
+    spawnParticle('steam', stations[1].x, stY - 22, 1);
+  }
+  // 가끔 인덕션 불꽃 스파크
+  if (Math.random() < 0.06) {
+    spawnParticle('spark', stations[1].x + (Math.random()-.5)*18, stY - 4, 1);
+  }
+
+  // 씬별 특수 파티클
+  if (scene.particle) {
+    if (scene.particle === 'splash' && cineT < 500) {
+      spawnParticle('splash', stations[1].x, stY - 5, 2);
+    } else if (scene.particle === 'pickup' && cineT < 400) {
+      spawnParticle('pickup', stations[0].x, stY - 5, 2);
+    } else if (scene.particle === 'steam+' && Math.random() < 0.55) {
+      spawnParticle('steam+', stations[1].x, stY - 22, 2);
+    } else if (scene.particle === 'salt' && cineT > 300 && Math.random() < 0.75) {
+      // 소금통 끝에서 떨어짐 — 팔 끝 위치에서
+    } else if (scene.particle === 'herbs' && cineT > 300 && Math.random() < 0.55) {
+      // 허브 소금통 끝에서 — 나중에 팔 좌표로 스폰
+    }
+  }
+
+  // ═══ ROBOT BASE ═══
+  const baseX = W * 0.5;
+  const baseY = floorY;
+
+  ctx.save();
+  // 받침
+  ctx.fillStyle = 'rgba(184,52,28,.15)';
+  ctx.strokeStyle = 'rgba(184,52,28,.5)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.roundRect(baseX-32, baseY, 64, 14, 2); ctx.fill(); ctx.stroke();
+  // 기둥
+  ctx.fillStyle = '#1E2330';
+  ctx.strokeStyle = 'rgba(253,247,231,.14)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.roundRect(baseX-14, baseY-22, 28, 24, 2); ctx.fill(); ctx.stroke();
+  // 기둥 라인
+  ctx.strokeStyle = 'rgba(184,52,28,.35)';
+  ctx.lineWidth = 0.8;
+  ctx.beginPath(); ctx.moveTo(baseX-10, baseY-18); ctx.lineTo(baseX+10, baseY-18); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(baseX-10, baseY-6); ctx.lineTo(baseX+10, baseY-6); ctx.stroke();
+  // 메인 조인트
+  const jGrad0 = ctx.createRadialGradient(baseX,baseY-22,2,baseX,baseY-22,15);
+  jGrad0.addColorStop(0,'#2A3350'); jGrad0.addColorStop(1,'#1A2238');
+  ctx.fillStyle = jGrad0;
+  ctx.strokeStyle = 'rgba(184,52,28,.6)';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(baseX, baseY-22, 15, 0, Math.PI*2);
+  ctx.fill(); ctx.stroke();
+  // 중앙 펄스 점
+  const pulseScale = 1 + Math.sin(ts * 0.004) * 0.2;
+  ctx.fillStyle = 'rgba(184,52,28,.9)';
+  ctx.beginPath(); ctx.arc(baseX, baseY-22, 5 * pulseScale, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = 'rgba(253,247,231,.4)';
+  ctx.beginPath(); ctx.arc(baseX - 1.5, baseY-23.5, 1.5, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+
+  // ═══ ARM 포즈 계산 (씬 + 특수 모션) ═══
+  let target = { j1: scene.pose.j1, j2: scene.pose.j2, j3: scene.pose.j3 };
+
+  if (scene.action === 'stir') {
+    // 오비탈: 냄비 위에서 원형 휘젓기
+    const w = 0.005;
+    const a = cineT * w;
+    target = {
+      j1: scene.pose.j1 + Math.cos(a) * 10,
+      j2: scene.pose.j2 + Math.sin(a) * 7,
+      j3: scene.pose.j3 + Math.sin(a * 2) * 5,
+    };
+  } else if (scene.action === 'season') {
+    // 소금 뿌리기 진동
+    target = {
+      j1: scene.pose.j1 + Math.sin(cineT * 0.025) * 2.5,
+      j2: scene.pose.j2 + Math.sin(cineT * 0.032) * 3.5,
+      j3: scene.pose.j3 + Math.cos(cineT * 0.03) * 5,
+    };
+  } else if (scene.action === 'garnish') {
+    // 허브 뿌리기 (부드러운 진동)
+    target = {
+      j1: scene.pose.j1 + Math.sin(cineT * 0.02) * 2,
+      j2: scene.pose.j2 + Math.sin(cineT * 0.024) * 2.5,
+      j3: scene.pose.j3 + Math.cos(cineT * 0.022) * 4,
+    };
+  } else if (scene.action === 'idle' || scene.action === 'home') {
+    // 호흡 같은 미세 움직임
+    target = {
+      j1: scene.pose.j1 + Math.sin(ts * 0.0015) * 1.2,
+      j2: scene.pose.j2 + Math.sin(ts * 0.0012) * 0.8,
+      j3: scene.pose.j3 + Math.sin(ts * 0.002) * 1.8,
+    };
+  } else if (scene.action === 'grab') {
+    // 집기 순간 살짝 내려누름
+    const kt = Math.min(1, cineT / 400);
+    target = {
+      j1: scene.pose.j1,
+      j2: scene.pose.j2 + kt * 3,
+      j3: scene.pose.j3 - kt * 3,
+    };
+  } else if (scene.action === 'drop' || scene.action === 'place') {
+    // 떨어뜨릴 때 살짝 반동
+    const kick = Math.max(0, 1 - cineT / 400);
+    target = {
+      j1: scene.pose.j1,
+      j2: scene.pose.j2 - kick * 4,
+      j3: scene.pose.j3 + kick * 2,
+    };
+  }
+
+  // 부드러운 lerp
+  const T = 0.045;
+  armAngles.j1 = lerp(armAngles.j1, target.j1, T);
+  armAngles.j2 = lerp(armAngles.j2, target.j2, T);
+  armAngles.j3 = lerp(armAngles.j3, target.j3, T);
+
+  const base = { x:baseX, y:baseY-22 };
+  const arm  = fk(base, armAngles.j1, armAngles.j2, armAngles.j3);
+
+  // 씬 파티클이 팔 끝 기준인 경우 지금 스폰
+  if (scene.particle === 'salt' && cineT > 300 && Math.random() < 0.75) {
+    spawnParticle('salt', arm.p3.x - 18, arm.p3.y + 4, 2);
+  } else if (scene.particle === 'herbs' && cineT > 300 && Math.random() < 0.55) {
+    spawnParticle('herbs', arm.p3.x - 18, arm.p3.y + 4, 1);
+  }
+
+  // 카메라 셰이크 (stir 중)
+  let shakeX = 0, shakeY = 0;
+  if (scene.action === 'stir') {
+    shakeX = Math.sin(cineT * 0.05) * 0.6;
+    shakeY = Math.cos(cineT * 0.06) * 0.5;
+  }
+  ctx.save();
+  ctx.translate(shakeX, shakeY);
+
+  // 팔 그림자
+  ctx.save();
+  ctx.globalAlpha = 0.28;
+  [arm.p0,arm.p1,arm.p2,arm.p3].forEach((p,i,arr) => {
+    if(i===0) return;
+    const prev = arr[i-1];
+    ctx.strokeStyle = 'rgba(0,0,0,.85)';
+    ctx.lineWidth = [0,11,9,7][i] + 2;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(prev.x+4, prev.y+4);
+    ctx.lineTo(p.x+4, p.y+4);
+    ctx.stroke();
+  });
+  ctx.restore();
+
+  // 링크 & 조인트
+  drawLink(ctx, arm.p0, arm.p1, '#1E2640', '#2A3560', 11, 'rgba(56,189,248,.65)');
+  drawLink(ctx, arm.p1, arm.p2, '#1C2438', '#263050', 9,  'rgba(212,167,44,.6)');
+  drawLink(ctx, arm.p2, arm.p3, '#1A2236', '#222E4A', 7,  'rgba(184,52,28,.65)');
+
+  drawJoint(ctx, arm.p1, 9,  '#2A3A60', 'rgba(56,189,248,.75)');
+  drawJoint(ctx, arm.p2, 8,  '#3A3020', 'rgba(212,167,44,.85)');
+
+  // 툴 그리기
+  drawTool(ctx, arm.p3, arm.r3, scene.tool);
+
+  // 엔드이펙터 글로우
+  const egColor = (scene.tool === 'spatula') ? 'rgba(212,167,44,.35)'
+                : (scene.tool === 'shaker')  ? 'rgba(253,247,231,.3)'
+                : (scene.tool.startsWith('gripper') && scene.tool !== 'gripper-open') ? 'rgba(184,52,28,.4)'
+                : 'rgba(56,189,248,.25)';
+  const eg = ctx.createRadialGradient(arm.p3.x,arm.p3.y,0,arm.p3.x,arm.p3.y,24);
+  eg.addColorStop(0, egColor);
+  eg.addColorStop(1, 'transparent');
+  ctx.fillStyle = eg;
+  ctx.beginPath(); ctx.arc(arm.p3.x, arm.p3.y, 24, 0, Math.PI*2); ctx.fill();
+
+  ctx.restore(); // end shake
+
+  // ═══ 파티클 렌더 (팔/도구 뒤가 아니라 위에 그려서 자연스럽게) ═══
+  ctx.save();
+  for (let i = particles.length-1; i>=0; i--) {
+    const p = particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    if (p.gravity) p.vy += p.gravity;
+    p.alpha -= 0.01;
+    p.life  -= 0.013;
+    if (p.life <= 0 || p.alpha <= 0) { particles.splice(i,1); continue; }
+    const a = Math.max(0, p.alpha * p.life);
+    const g = ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,p.size);
+    g.addColorStop(0, `rgba(${p.color},${a})`);
+    g.addColorStop(1, 'transparent');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI*2);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // ═══ HUD (편집 감성의 자막) ═══
+  ctx.save();
+  ctx.font = `700 9px 'JetBrains Mono', monospace`;
+  ctx.fillStyle = 'rgba(253,247,231,.32)';
+  ctx.textAlign = 'left';
+  ctx.fillText(
+    `PHASE ${String(cineIdx+1).padStart(2,'0')}/${String(CINE.length).padStart(2,'0')}  ·  ${scene.action.toUpperCase()}`,
+    16, H - 14
+  );
+  // 루프 타임코드 (오른쪽)
+  ctx.textAlign = 'right';
+  ctx.fillStyle = 'rgba(253,247,231,.22)';
+  const tc = ((ts % CINE_TOTAL) / 1000).toFixed(1);
+  ctx.fillText(`TC ${tc.padStart(5,'0')}s`, W - 16, H - 14);
+  ctx.restore();
+}
+
+// ─── 링크·조인트·도구 그리기 함수 ────────────────────────────
+function drawLink(ctx, p0, p1, c0, c1, w, stroke) {
+  ctx.save();
+  const angle = Math.atan2(p1.y-p0.y, p1.x-p0.x);
+  const len   = Math.hypot(p1.x-p0.x, p1.y-p0.y);
+  ctx.translate(p0.x, p0.y); ctx.rotate(angle);
+  const g = ctx.createLinearGradient(0,-w,0,w);
+  g.addColorStop(0, c0); g.addColorStop(1, '#0A0F1E');
+  ctx.fillStyle = g;
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(0, -w/2, len, w, w/2);
+  ctx.fill(); ctx.stroke();
+  // 중앙 하이라이트
+  ctx.strokeStyle = 'rgba(253,247,231,.1)';
+  ctx.lineWidth = 1.3;
+  ctx.beginPath(); ctx.moveTo(6, -1); ctx.lineTo(len-6, -1); ctx.stroke();
+  // 세그먼트 리벳
+  const rivets = Math.max(2, Math.floor(len / 22));
+  for (let i = 1; i < rivets; i++) {
+    const rx = (len / rivets) * i;
+    ctx.fillStyle = 'rgba(253,247,231,.18)';
+    ctx.beginPath(); ctx.arc(rx, 0, 1, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawJoint(ctx, p, r, fill, stroke) {
+  ctx.save();
+  const g = ctx.createRadialGradient(p.x,p.y,1,p.x,p.y,r);
+  g.addColorStop(0,'#303C60'); g.addColorStop(1,fill);
+  ctx.fillStyle = g;
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 1.8;
+  ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI*2);
+  ctx.fill(); ctx.stroke();
+  // 내부 링
+  ctx.strokeStyle = 'rgba(253,247,231,.15)';
+  ctx.lineWidth = 0.8;
+  ctx.beginPath(); ctx.arc(p.x, p.y, r*.55, 0, Math.PI*2); ctx.stroke();
+  // 하이라이트
+  ctx.fillStyle = 'rgba(253,247,231,.3)';
+  ctx.beginPath(); ctx.arc(p.x-r*.3, p.y-r*.3, r*.3, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+// 도구 그리기 — 툴 교체가 시각적으로 보여야 함
+function drawTool(ctx, tip, angle, tool) {
+  ctx.save();
+  ctx.translate(tip.x, tip.y);
+  ctx.rotate(angle);
+
+  // 손목 블록 (공통)
+  ctx.fillStyle = '#1C2540';
+  ctx.strokeStyle = 'rgba(184,52,28,.6)';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.roundRect(-7,-7,14,14,2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = 'rgba(184,52,28,.7)';
+  ctx.beginPath(); ctx.arc(0, 0, 2, 0, Math.PI*2); ctx.fill();
+
+  if (tool === 'gripper-open') {
+    ctx.strokeStyle = 'rgba(56,189,248,.95)';
+    ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(0,-10); ctx.lineTo(0,-4); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0,-4); ctx.lineTo(-14, 5); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, 10); ctx.lineTo(0, 4); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, 4); ctx.lineTo(-14,-5); ctx.stroke();
+  }
+  else if (tool === 'gripper-closed') {
+    ctx.strokeStyle = 'rgba(184,52,28,.95)';
+    ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(0,-4); ctx.lineTo(-14, 0); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, 4); ctx.lineTo(-14, 0); ctx.stroke();
+  }
+  else if (tool === 'gripper-item') {
+    // 그리퍼 + 재료 (빨간 블롭)
+    ctx.strokeStyle = 'rgba(184,52,28,.95)';
+    ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(0,-4); ctx.lineTo(-14, 0); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, 4); ctx.lineTo(-14, 0); ctx.stroke();
+    // 재료
+    ctx.fillStyle = '#B8341C';
+    ctx.strokeStyle = '#5A1808';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(-19, 0, 6.5, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = 'rgba(253,247,231,.4)';
+    ctx.beginPath(); ctx.arc(-21, -2, 1.8, 0, Math.PI*2); ctx.fill();
+  }
+  else if (tool === 'gripper-dish') {
+    // 그리퍼 + 접시 (요리 담긴)
+    ctx.strokeStyle = 'rgba(184,52,28,.95)';
+    ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(0,-4); ctx.lineTo(-10, 0); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, 4); ctx.lineTo(-10, 0); ctx.stroke();
+    // 접시
+    ctx.fillStyle = '#F2ECE0';
+    ctx.strokeStyle = '#8C7A5E';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.ellipse(-22, 0, 13, 4.5, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    // 접시 림
+    ctx.strokeStyle = 'rgba(140,122,94,.5)';
+    ctx.lineWidth = 0.7;
+    ctx.beginPath(); ctx.ellipse(-22, 0, 10, 3, 0, 0, Math.PI*2); ctx.stroke();
+    // 요리
+    ctx.fillStyle = '#8A2410';
+    ctx.beginPath(); ctx.ellipse(-22, -1, 7, 2.3, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = 'rgba(216,82,54,.8)';
+    ctx.beginPath(); ctx.ellipse(-23, -2, 3, 1, 0, 0, Math.PI*2); ctx.fill();
+  }
+  else if (tool === 'spatula') {
+    // 샤프트
+    ctx.strokeStyle = 'rgba(253,247,231,.75)';
+    ctx.lineWidth = 2.2; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-4, 0); ctx.lineTo(-17, 0); ctx.stroke();
+    // 블레이드
+    ctx.fillStyle = '#2A3350';
+    ctx.strokeStyle = 'rgba(212,167,44,.85)';
+    ctx.lineWidth = 1.3;
+    ctx.beginPath(); ctx.roundRect(-29,-7.5, 14, 15, 2); ctx.fill(); ctx.stroke();
+    // 블레이드 슬릿
+    ctx.strokeStyle = 'rgba(253,247,231,.18)';
+    ctx.lineWidth = 0.7;
+    [-4, 0, 4].forEach(y => {
+      ctx.beginPath(); ctx.moveTo(-25, y); ctx.lineTo(-17, y); ctx.stroke();
+    });
+  }
+  else if (tool === 'shaker') {
+    // 손잡이
+    ctx.strokeStyle = 'rgba(253,247,231,.65)';
+    ctx.lineWidth = 2.3;
+    ctx.beginPath(); ctx.moveTo(-3, 0); ctx.lineTo(-11, 0); ctx.stroke();
+    // 셰이커 바디
+    ctx.fillStyle = '#3A3020';
+    ctx.strokeStyle = 'rgba(212,167,44,.85)';
+    ctx.lineWidth = 1.3;
+    ctx.beginPath(); ctx.roundRect(-24,-6, 13, 12, 2); ctx.fill(); ctx.stroke();
+    // 뚜껑
+    ctx.fillStyle = '#5A4820';
+    ctx.beginPath(); ctx.roundRect(-25, -6, 2, 12, 1); ctx.fill();
+    // 구멍 (점)
+    ctx.fillStyle = 'rgba(253,247,231,.9)';
+    [-20, -17, -14].forEach(x => {
+      [-2.5, 1.5].forEach(y => {
+        ctx.beginPath(); ctx.arc(x, y, 0.8, 0, Math.PI*2); ctx.fill();
+      });
+    });
+  }
+
+  ctx.restore();
+}
+
+if (canvas && ctx) requestAnimationFrame(drawFrame);
+
+// ════════════════════════════════════════════════════════════
+//  STEP RENDERING
+// ════════════════════════════════════════════════════════════
+function renderSteps() {
+  const el = document.getElementById('stepsBody');
+  el.innerHTML = STEPS.map((s,i) => {
+    const isDone     = i < curStep;
+    const isActive   = i === curStep && i < STEPS.length-1;
+    const isDoneLast = i === curStep && i === STEPS.length-1;
+    const cls = isDone||isDoneLast ? 'done' : isActive ? 'active' : 'pending';
+    const showConn = i < STEPS.length-1;
+
+    let badgeHtml = '';
+    if (isDone || isDoneLast)
+      badgeHtml = `<span class="step-badge badge-done">✓ DONE · 완료</span>`;
+    else if (isActive)
+      badgeHtml = `<span class="step-badge badge-active">IN PROGRESS · 진행 중</span>`;
+
+    let subHtml = '';
+    if ((isActive||isDone) && s.subs.length) {
+      subHtml = `<div class="sub-steps">${s.subs.map((sub,j) => {
+        const sdone   = isDone || (isActive && j < subIdx);
+        const sactive = isActive && j === subIdx;
+        return `<span class="sub-step${sdone?' done':sactive?' active':''}">${sub}</span>`;
+      }).join('')}</div>`;
+    }
+
+    const num = String(i+1).padStart(2,'0');
+    return `<div class="step-item ${cls}" id="step${i}">
+      <div class="step-icon-wrap">
+        <div class="step-ico"><span class="step-ico-num">${num}</span></div>
+        ${showConn ? `<div class="step-conn"></div>` : ''}
+      </div>
+      <div class="step-text">
+        <div class="step-label">${s.label}</div>
+        <div class="step-detail">${s.detail}</div>
+        ${badgeHtml}${subHtml}
+      </div>
+    </div>`;
+  }).join('');
+
+  const activeEl = document.getElementById('step'+curStep);
+  if (activeEl) activeEl.scrollIntoView({behavior:'smooth', block:'nearest'});
+
+  document.getElementById('actionLabel').textContent =
+    curStep === -1 ? '주문 접수 대기' : (STEP_LABELS[curStep] || '완료');
+}
+
+// ════════════════════════════════════════════════════════════
+//  PROGRESS + TICK
+// ════════════════════════════════════════════════════════════
+function updateProgress() {
+  const pct = Math.min(100, Math.round(elapsed / TOTAL_DUR * 100));
+  document.getElementById('progFill').style.width = pct + '%';
+  document.getElementById('progPct').textContent  = pct + '%';
+  if (curStep === -1) {
+    document.getElementById('etaVal').textContent = '--:--';
+    return;
+  }
+  const rem = Math.max(0, Math.ceil((TOTAL_DUR - elapsed) / 1000));
+  const m = Math.floor(rem/60), s = rem%60;
+  document.getElementById('etaVal').textContent = `${m}:${s.toString().padStart(2,'0')}`;
+}
+
+// ════════════════════════════════════════════════════════════
+//  PHASE-DRIVEN STATE MACHINE
+// ════════════════════════════════════════════════════════════
+//  curStep:
+//    -1 = 주문 접수 대기 (WAITING)
+//     0 = 주문 접수 (1초)
+//     1 = 레시피 로드 (1초)
+//     2 = 재료 준비 (1초)
+//     3 = 조리 진행 (phase=cooking_phase 유지)
+//     4 = 플레이팅 (phase=serving_phase 유지)
+//     5 = 준비 완료 (phase=finished 유지)
+//
+//  상태 파생 규칙:
+//   A. /robot_status (current_step / total_steps / state) — 조리 진행 단계 산출
+//        state == 'EXECUTING' 일 때만 step 기반 파생:
+//          1 ≤ current_step ≤ total_steps - 2  → 'cooking_phase'
+//          current_step == total_steps - 1     → 'serving_phase'
+//          current_step == total_steps         → 'finished'
+//   B. /phase — 'ready' / 'error' 제어 신호 (취소·긴급 복구 등)
+//        'ready' → 즉시 WAITING(-1)
+//        'error' → 에러 오버레이 후 3s 뒤 키오스크 복귀
+//
+//  _onPhase 내부 처리:
+//     'cooking_phase'  → 시퀀스 시작 (0 → 1 → 2 → 3, 각 1초). 어떤 상태든 재시작.
+//     'serving_phase'  → curStep = 4
+//     'finished'       → curStep = 5
+
+let _sequenceTimers = [];    // setTimeout ids (시퀀스 0→1→2→3)
+let _lastPhase      = null;
+
+function _clearAllTimers() {
+  _sequenceTimers.forEach(t => clearTimeout(t));
+  _sequenceTimers = [];
+}
+
+function _setStep(n) {
+  curStep     = n;
+  subIdx      = 0;
+  stepElapsed = 0;
+  elapsed     = n < 0 ? 0
+              : Math.min((n / Math.max(STEPS.length - 1, 1)) * TOTAL_DUR, TOTAL_DUR);
+  renderSteps();
+  updateProgress();
+  _updateCancelBtnVisibility();
+}
+
+// 주문 취소 버튼 — 활성 주문(curStep 0~5) 일 때만 표시
+function _updateCancelBtnVisibility() {
+  const btn = document.getElementById('cancelBtn');
+  if (!btn) return;
+  if (curStep >= 0 && curStep <= 5) btn.classList.add('show');
+  else                              btn.classList.remove('show');
+}
+
+function _startCookingSequence() {
+  _clearAllTimers();
+  _setStep(0);                                                   // 주문 접수
+  _sequenceTimers.push(setTimeout(() => _setStep(1), 1000));      // 레시피 로드
+  _sequenceTimers.push(setTimeout(() => _setStep(2), 2000));      // 재료 준비
+  _sequenceTimers.push(setTimeout(() => _setStep(3), 3000));      // 조리 진행 (hold)
+}
+
+// ── 에러 발생 시 키오스크 페이지로 복귀 ──
+const KIOSK_URL      = 'https://kiosk.thatshoon.com';
+const ERR_DELAY_MS   = 3000;
+const SLIDE_DUR_MS   = 620;    // CSS page-exit-right transition 과 일치
+let   _errTriggered  = false;  // 중복 실행 방지
+let   _resetTriggered = false; // 장비결함 팝업 중복 방지
+let   _doneTriggered  = false; // 완료 팝업 중복 방지
+const DONE_DELAY_MS = 5000;
+
+function _redirectToKiosk() {
+  document.documentElement.classList.add('page-exit-right');
+  setTimeout(() => { window.location.href = KIOSK_URL; }, SLIDE_DUR_MS);
+}
+
+// 장비 결함 (RECOVERING_RESET / RECOVERING_FAIL) — 안내 오버레이 + 3s 후 키오스크
+function _handleFaultPhase() {
+  if (_resetTriggered || _errTriggered || _doneTriggered) return;
+  _resetTriggered = true;
+  _clearAllTimers();
+
+  const ov = document.getElementById('errOverlay');
+  if (ov) {
+    const t = ov.querySelector('.err-title');
+    const s = ov.querySelector('.err-sub');
+    const i = ov.querySelector('.err-ico');
+    if (t) t.textContent = '주문이 취소되었습니다';
+    if (s) s.textContent = '장비 결함으로 인하여 주문이 취소되었습니다. 이용에 불편함을 드려 죄송합니다.';
+    if (i) i.textContent = '!';
+    ov.classList.add('show');
+  }
+
+  const sec = document.getElementById('errRedirSec');
+  let remain = Math.ceil(ERR_DELAY_MS / 1000);
+  if (sec) sec.textContent = remain;
+  const ticker = setInterval(() => {
+    remain -= 1;
+    if (remain <= 0) { clearInterval(ticker); return; }
+    if (sec) sec.textContent = remain;
+  }, 1000);
+
+  setTimeout(_redirectToKiosk, ERR_DELAY_MS);
+}
+
+// 요리 완료 — 안내 오버레이 + 확인 버튼 + 5s 자동 전환
+let _doneTicker = null;
+let _doneTo     = null;
+
+function _handleDonePhase() {
+  if (_doneTriggered || _resetTriggered || _errTriggered) return;
+  _doneTriggered = true;
+  _clearAllTimers();
+
+  const ov = document.getElementById('doneOverlay');
+  if (ov) ov.classList.add('show');
+
+  const sec = document.getElementById('doneRedirSec');
+  let remain = Math.ceil(DONE_DELAY_MS / 1000);
+  if (sec) sec.textContent = remain;
+  _doneTicker = setInterval(() => {
+    remain -= 1;
+    if (remain <= 0) { clearInterval(_doneTicker); _doneTicker = null; return; }
+    if (sec) sec.textContent = remain;
+  }, 1000);
+
+  _doneTo = setTimeout(confirmDone, DONE_DELAY_MS);
+}
+
+let _doneRedirected = false;
+function confirmDone() {
+  if (_doneRedirected) return;
+  _doneRedirected = true;
+  if (_doneTicker) { clearInterval(_doneTicker); _doneTicker = null; }
+  if (_doneTo)     { clearTimeout(_doneTo);      _doneTo     = null; }
+  _redirectToKiosk();
+}
+
+function _handleErrorPhase() {
+  if (_errTriggered) return;
+  _errTriggered = true;
+  _clearAllTimers();
+
+  const ov  = document.getElementById('errOverlay');
+  const sec = document.getElementById('errRedirSec');
+  if (ov) ov.classList.add('show');
+
+  let remain = Math.ceil(ERR_DELAY_MS / 1000);
+  if (sec) sec.textContent = remain;
+  const ticker = setInterval(() => {
+    remain -= 1;
+    if (remain <= 0) { clearInterval(ticker); return; }
+    if (sec) sec.textContent = remain;
+  }, 1000);
+
+  setTimeout(() => {
+    document.documentElement.classList.add('page-exit-right');
+    setTimeout(() => {
+      window.location.href = KIOSK_URL;
+    }, SLIDE_DUR_MS);
+  }, ERR_DELAY_MS);
+}
+
+// ── 주문 취소 플로우 ──
+let _cancelTriggered = false;
+
+function openCancelConfirm() {
+  const m = document.getElementById('cancelConfirm');
+  if (m) m.classList.add('show');
+}
+
+function closeCancelConfirm() {
+  const m = document.getElementById('cancelConfirm');
+  if (m) m.classList.remove('show');
+}
+
+function confirmCancel() {
+  if (_cancelTriggered) return;
+  _cancelTriggered = true;
+  closeCancelConfirm();
+  _clearAllTimers();
+
+  // Firebase /phase = 'ready' (다른 리스너에 취소 신호)
+  try {
+    if (firebaseDB) firebaseDB.ref('/phase').set('ready');
+  } catch (e) { console.warn('[CustomerStatus] /phase update 실패:', e); }
+
+  // "주문이 취소되었습니다" 안내 — err-card 재사용
+  const ov  = document.getElementById('errOverlay');
+  const title = ov ? ov.querySelector('.err-title') : null;
+  const sub   = ov ? ov.querySelector('.err-sub')   : null;
+  const ico   = ov ? ov.querySelector('.err-ico')   : null;
+  if (title) title.textContent = '주문이 취소되었습니다';
+  if (sub)   sub.textContent   = '주문 화면으로 돌아갑니다.';
+  if (ico)   ico.textContent   = '✕';
+  if (ov)    ov.classList.add('show');
+
+  const sec = document.getElementById('errRedirSec');
+  let remain = Math.ceil(ERR_DELAY_MS / 1000);
+  if (sec) sec.textContent = remain;
+  const ticker = setInterval(() => {
+    remain -= 1;
+    if (remain <= 0) { clearInterval(ticker); return; }
+    if (sec) sec.textContent = remain;
+  }, 1000);
+
+  setTimeout(() => {
+    document.documentElement.classList.add('page-exit-right');
+    setTimeout(() => {
+      window.location.href = KIOSK_URL;
+    }, SLIDE_DUR_MS);
+  }, ERR_DELAY_MS);
+}
+
+function _onPhase(newPhase) {
+  if (newPhase === _lastPhase) return;
+  _lastPhase = newPhase;
+
+  switch (newPhase) {
+    case 'cooking_phase':
+      _startCookingSequence();          // 언제든 재시작
+      break;
+
+    case 'serving_phase':
+      _clearAllTimers();
+      _setStep(4);
+      break;
+
+    case 'finished':
+      _clearAllTimers();
+      _setStep(5);
+      _handleDonePhase();
+      break;
+
+    case 'ready':
+      // phase=ready → 즉시 '주문 접수 대기' 상태
+      _clearAllTimers();
+      if (curStep !== -1) _setStep(-1);
+      break;
+
+    case 'error':
+      _handleErrorPhase();
+      break;
+  }
+}
+
+function _setOrderNum(val) {
+  const a = document.getElementById('orderNum');
+  const b = document.getElementById('orderNumMeta');
+  if (a) a.textContent = val;
+  if (b) b.textContent = val;
+}
+
+// ════════════════════════════════════════════════════════════
+//  FIREBASE
+// ════════════════════════════════════════════════════════════
+let firebaseDB = null;      // 전역 — confirmCancel 등에서 사용
+
+function _initFirebase() {
+  try {
+    firebase.initializeApp(FIREBASE_CONFIG);
+    firebaseDB = firebase.database();
+    const db = firebaseDB;
+
+    // 주문 번호 표시 (부가 정보)
+    db.ref('/orders').orderByKey().limitToLast(1).on('child_added', snap => {
+      const orderId = snap.key;
+      if (!orderId) return;
+      _setOrderNum('#' + orderId.replace(/\D/g, '').slice(-4).padStart(4, '0'));
+    });
+
+    // /phase — 제어 신호 전용 ('ready' / 'error'만 처리)
+    db.ref('/phase').on('value', snap => {
+      const val = snap.val();
+      if (val === 'ready' || val === 'error') _onPhase(val);
+    });
+
+    // /robot_status — 조리 단계 드라이버 (current_step / total_steps 로 파생)
+    //   state 분기:
+    //     'RECOVERING_RESET' / 'RECOVERING_FAIL' → 장비결함 안내 팝업 + 3s 후 키오스크
+    //     'RECOVERING_RETRY' → 현재 step 유지, 타이머 정지 후 대기 (복귀 없음)
+    //     'ERROR*'           → 에러 시퀀스 (키오스크 복귀)
+    //     'EXECUTE' / 'EXECUTING' → current_step/total_steps 기반 정상 파생
+    db.ref('/robot_status').on('value', snap => {
+      const rs = snap.val();
+      if (!rs || typeof rs !== 'object') return;
+      const state = rs.state;
+      if (typeof state !== 'string') return;
+
+      // RECOVERING_RESET / RECOVERING_FAIL — 장비결함 안내 + 키오스크
+      if (state === 'RECOVERING_RESET' || state === 'RECOVERING_FAIL') {
+        _handleFaultPhase();
+        return;
+      }
+
+      // RECOVERING_RETRY — 현재 단계에서 대기 (진행 타이머만 정지, 복귀 없음)
+      if (state === 'RECOVERING_RETRY') { _clearAllTimers(); return; }
+
+      // ERROR 계열 — /phase='error' 와 동일 경로로 처리
+      if (state.startsWith('ERROR')) { _onPhase('error'); return; }
+
+      // step 파생 — current_step/total_steps 기반
+      const cur = Number(rs.current_step);
+      const tot = Number(rs.total_steps);
+      const stepsValid = Number.isFinite(cur) && Number.isFinite(tot) && tot > 0;
+
+      // 완료는 state 무관하게 파생 (마지막 step에서 EXECUTING → STANDBY 등으로 전이 가능)
+      if (stepsValid && cur >= tot) { _onPhase('finished'); return; }
+
+      // 중간 단계는 EXECUTE / EXECUTING 에서만 파생
+      if (state !== 'EXECUTING' && state !== 'EXECUTE') return;
+      if (!stepsValid) return;
+
+      let derived = null;
+      if (cur === tot - 1)                 derived = 'serving_phase';
+      else if (cur >= 1 && cur <= tot - 2) derived = 'cooking_phase';
+
+      if (derived) _onPhase(derived);
+    });
+
+    console.log('[CustomerStatus] Firebase 실시간 연결 완료 — /phase + /robot_status 구독');
+  } catch(e) {
+    console.warn('[CustomerStatus] Firebase 미연결:', e.message);
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+//  INIT
+// ════════════════════════════════════════════════════════════
+_setStep(-1);            // 초기 상태: 주문 접수 대기
+_initFirebase();
+</script>
+</body>
+</html>

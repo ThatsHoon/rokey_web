@@ -1,0 +1,2348 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ROBO CHEF — 관리자 모니터</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script src="firebase_config.js"></script>
+<!-- Lucide Icons -->
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<style>
+/* ── RESET & TOKENS ── */
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  /* ── 짙은 회색 베이스 팔레트 ── */
+  --bg:     #141414;
+  --panel:  #1C1C1C;
+  --panel2: #242424;
+  --panel3: #2A2A2A;
+  --border: #303030;
+  --border2:#404040;
+  --border3:#505050;
+
+  /* ── 브랜드 & 액센트 ── */
+  --brand:  #E8521A;
+  --brand-l:#FF7A45;
+  --brand-d:#C4410E;
+  --accent: #38BDF8;
+  --green:  #4ADE80;
+  --yellow: #FBBF24;
+  --red:    #F87171;
+  --purple: #C084FC;
+  --orange: #FB923C;
+
+  /* ── 텍스트 ── */
+  --text:   #E8E8E8;
+  --text2:  #B0B0B0;
+  --muted:  #525252;
+  --dim:    #6B6B6B;
+
+  /* ── 기타 ── */
+  --mono:   'JetBrains Mono', monospace;
+  --sans:   'Inter', sans-serif;
+  --r:      10px;
+  --r-sm:   6px;
+  --shadow: 0 2px 12px rgba(0,0,0,.5);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,.6);
+}
+
+html,body { height:100%; }
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  overflow-x: hidden;
+}
+
+/* ── 스크롤바 전역 ── */
+::-webkit-scrollbar { width:4px; height:4px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:var(--border2); border-radius:4px; }
+::-webkit-scrollbar-thumb:hover { background:var(--border3); }
+
+/* ══════════════════════════════════════════════
+   CARD SYSTEM
+══════════════════════════════════════════════ */
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  background: var(--panel2);
+}
+.card-dot { width:7px; height:7px; border-radius:50%; background:var(--accent); flex-shrink:0; }
+.card-title {
+  font-size: 10px; font-weight: 700; color: var(--text2);
+  letter-spacing: 1.8px; text-transform: uppercase;
+}
+.card-badge {
+  margin-left: auto;
+  font-size: 9px; font-family: var(--mono); color: var(--muted);
+  background: var(--panel3); padding: 2px 8px;
+  border-radius: var(--r-sm); border: 1px solid var(--border);
+  white-space: nowrap; letter-spacing: .5px;
+}
+
+/* ══════════════════════════════════════════════
+   DESKTOP LAYOUT (≥768px)
+══════════════════════════════════════════════ */
+@media (min-width: 768px) {
+  body { height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 20px; height: 54px; flex-shrink: 0;
+    background: linear-gradient(180deg, #0B0E1C 0%, var(--panel) 100%);
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 2px 0 rgba(0,0,0,.4);
+  }
+  .hdr-mob { display: none; }
+
+  .nav-pills { display: flex; gap: 5px; }
+  .nav-pill {
+    font-size: 12px; font-weight: 500;
+    padding: 5px 14px; border-radius: 6px;
+    text-decoration: none;
+    border: 1px solid transparent;
+    color: var(--dim);
+    transition: all .15s;
+  }
+  .nav-pill:hover { color: var(--text); background: var(--panel2); border-color: var(--border); }
+  .nav-pill.active {
+    background: rgba(232,82,26,.12);
+    border-color: rgba(232,82,26,.35);
+    color: var(--brand); font-weight: 700;
+  }
+
+  .main {
+    flex: 1; display: grid;
+    grid-template-columns: 280px 1fr 520px;
+    gap: 10px; padding: 10px;
+    overflow: hidden; min-height: 0;
+  }
+  .col-left  { display: flex; flex-direction: column; min-height: 0; }
+  .cam-card  { flex: 1; min-height: 0; }
+  .col-center{ display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+  .col-right { display: flex; flex-direction: column; min-height: 0; }
+  .log-card  { flex: 1; min-height: 0; }
+
+  .coord-sections { display: grid; grid-template-columns: 1fr 1fr; }
+  .coord-section  { padding: 14px 16px; }
+  .coord-section + .coord-section { border-left: 1px solid var(--border); }
+  .axes-grid  { display: grid; grid-template-columns: repeat(3,1fr); gap: 7px; }
+  .axis-value { font-size: 23px; }
+
+  .joints-body { padding: 12px 16px; display: flex; flex-direction: column; gap: 9px; }
+  .status-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 7px; padding: 12px 14px; flex: 1; }
+  .log-body    { flex: 1; overflow-y: auto; min-height: 0; }
+}
+
+/* ══════════════════════════════════════════════
+   MOBILE LAYOUT (<768px)
+══════════════════════════════════════════════ */
+@media (max-width: 767px) {
+  header { display: none; }
+  body   { overflow-y: auto; }
+
+  .hdr-mob {
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--panel); border-bottom: 1px solid var(--border);
+    padding: 10px 16px; position: sticky; top: 0; z-index: 99;
+    box-shadow: 0 2px 8px rgba(0,0,0,.4);
+  }
+  .hdr-mob-logo  { display: flex; align-items: center; gap: 9px; }
+  .hdr-mob-icon  {
+    width: 32px; height: 32px;
+    background: linear-gradient(135deg, var(--brand) 0%, var(--brand-l) 100%);
+    border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 16px;
+    box-shadow: 0 2px 8px rgba(232,82,26,.4);
+  }
+  .hdr-mob-brand { font-size: 15px; font-weight: 900; color: var(--text); letter-spacing: 1.5px; }
+  .hdr-mob-right { display: flex; align-items: center; gap: 10px; }
+  .nav-pills     { display: none; }
+
+  .main { display: flex; flex-direction: column; gap: 8px; padding: 8px; }
+  .col-left, .col-center, .col-right { display: contents; }
+
+  .status-card { order: 1; }
+  .coord-card  { order: 2; }
+  .joint-card  { order: 3; }
+  .cam-card    { order: 4; }
+  .log-card    { order: 5; }
+
+  .coord-sections { display: flex; flex-direction: column; }
+  .coord-section  { padding: 12px 14px; }
+  .coord-section + .coord-section { border-top: 1px solid var(--border); }
+  .axes-grid  { display: grid; grid-template-columns: repeat(3,1fr); gap: 6px; }
+  .axis-value { font-size: 20px; }
+
+  .joints-body { padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
+  .status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 10px 12px; }
+  .log-body    { max-height: 260px; overflow-y: auto; }
+  .cam-body    { height: 200px; }
+}
+
+/* ══════════════════════════════════════════════
+   HEADER (공통)
+══════════════════════════════════════════════ */
+.logo { display: flex; align-items: center; gap: 10px; }
+.logo-icon {
+  width: 36px; height: 36px;
+  background: linear-gradient(135deg, var(--brand) 0%, var(--brand-l) 100%);
+  border-radius: 10px; display: flex; align-items: center; justify-content: center;
+  font-size: 17px; flex-shrink: 0;
+  box-shadow: 0 4px 14px rgba(232,82,26,.45);
+}
+.logo-text .brand {
+  font-size: 14px; font-weight: 900; color: var(--text); letter-spacing: 2.5px;
+}
+.logo-text .sub {
+  font-size: 9px; color: var(--muted); letter-spacing: 2.5px;
+  text-transform: uppercase; margin-top: 1px;
+}
+.hdr-right { display: flex; align-items: center; gap: 12px; }
+
+.badge {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 600;
+  padding: 5px 12px; border-radius: 20px;
+}
+.badge.online {
+  color: var(--green);
+  background: rgba(74,222,128,.08);
+  border: 1px solid rgba(74,222,128,.2);
+}
+.badge-sm {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 10px; font-weight: 700; color: var(--green);
+}
+.pulse {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--green);
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%,100% { opacity:1; box-shadow:0 0 0 0 rgba(74,222,128,.5); }
+  50%      { opacity:.7; box-shadow:0 0 0 5px rgba(74,222,128,0); }
+}
+#clock, #clockM { font-family: var(--mono); font-size: 12px; font-weight: 500; color: var(--dim); }
+
+/* ══════════════════════════════════════════════
+   TAB SWITCHER
+══════════════════════════════════════════════ */
+.tab-bar {
+  display: flex; gap: 2px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  padding: 3px; border-radius: 8px;
+  margin-left: auto;
+}
+@media(max-width:767px) { .tab-bar { display: none; } }
+.tab-btn {
+  font-size: 11px; font-weight: 600;
+  padding: 5px 16px; border-radius: 6px;
+  border: none; cursor: pointer;
+  background: transparent; color: var(--dim);
+  transition: all .2s; letter-spacing: .3px;
+}
+.tab-btn.active {
+  background: var(--panel3);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(0,0,0,.5);
+}
+.tab-btn:hover:not(.active) { color: var(--text2); }
+
+.view { display: none; flex: 1; min-height: 0; }
+.view.active { display: flex; }
+@media(max-width:767px) { .view { display: flex !important; } }
+
+/* ══════════════════════════════════════════════
+   CAMERA
+══════════════════════════════════════════════ */
+.cam-body { position: relative; background: #0A0A0A; overflow: hidden; }
+@media(min-width:768px) { .cam-body { flex: 1; min-height: 0; } }
+#videoEl { width:100%; height:100%; object-fit:cover; display:block; }
+.no-cam {
+  position:absolute; inset:0; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap:12px; color: var(--muted);
+}
+.no-cam svg  { opacity:.2; }
+.no-cam span { font-size:12px; color: var(--dim); letter-spacing:1px; }
+.cam-overlay { position:absolute; inset:0; pointer-events:none; }
+.cb { position:absolute; width:18px; height:18px; }
+.cb-tl { top:10px; left:10px;  border-top:2px solid var(--green); border-left:2px solid var(--green); }
+.cb-tr { top:10px; right:10px; border-top:2px solid var(--green); border-right:2px solid var(--green); }
+.cb-bl { bottom:10px; left:10px;  border-bottom:2px solid var(--green); border-left:2px solid var(--green); }
+.cb-br { bottom:10px; right:10px; border-bottom:2px solid var(--green); border-right:2px solid var(--green); }
+.crosshair { position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:28px;height:28px; }
+.crosshair::before,.crosshair::after { content:'';position:absolute;background:rgba(74,222,128,.35); }
+.crosshair::before { width:1px;height:100%;left:50%;transform:translateX(-50%); }
+.crosshair::after  { height:1px;width:100%;top:50%;transform:translateY(-50%); }
+.scan-line {
+  position:absolute; left:0; right:0; height:1px;
+  background: linear-gradient(transparent, rgba(56,189,248,.4), transparent);
+  animation: scan 5s linear infinite;
+}
+@keyframes scan { from{top:-2px} to{top:100%} }
+.cam-hud {
+  position:absolute; bottom:0; left:0; right:0; padding:8px 12px;
+  background: linear-gradient(transparent, rgba(0,0,0,.8));
+  display:flex; justify-content:space-between; align-items:flex-end;
+  font-family: var(--mono); font-size:10px;
+}
+.rec-badge { color:var(--red); display:flex; align-items:center; gap:5px; font-weight:600; }
+.rec-dot   { width:6px; height:6px; border-radius:50%; background:var(--red); animation:pr 1.2s ease-in-out infinite; }
+@keyframes pr { 0%,100%{opacity:1}50%{opacity:.2} }
+.hud-info  { color:rgba(255,255,255,.4); text-align:right; line-height:1.6; }
+
+/* ══════════════════════════════════════════════
+   COORDINATES
+══════════════════════════════════════════════ */
+.section-label {
+  font-size: 9px; font-weight: 700; letter-spacing: 2.5px;
+  text-transform: uppercase; margin-bottom: 10px;
+  display: flex; align-items: center; gap: 7px; color: var(--dim);
+}
+.section-label::after { content:''; flex:1; height:1px; background:var(--border); }
+.section-label.pos-label { color: var(--accent); }
+.section-label.rot-label { color: var(--purple); }
+
+.axis-item {
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 10px 10px 8px;
+  transition: border-color .15s;
+}
+.axis-item:hover { border-color: var(--border2); }
+.axis-item.pos-item { border-top: 2px solid rgba(56,189,248,.4); }
+.axis-item.rot-item { border-top: 2px solid rgba(192,132,252,.4); }
+.axis-name {
+  font-size: 9px; font-weight: 700; font-family: var(--mono);
+  letter-spacing: 1.5px; margin-bottom: 6px;
+}
+.pos-item .axis-name { color: var(--accent); }
+.rot-item .axis-name { color: var(--purple); }
+.axis-value {
+  font-family: var(--mono); font-weight: 700;
+  line-height: 1; letter-spacing: -0.5px;
+  display: block; margin-bottom: 4px;
+  font-variant-numeric: tabular-nums; color: var(--text);
+}
+.axis-unit { font-family:var(--mono); font-size:9px; color:var(--muted); }
+
+/* ══════════════════════════════════════════════
+   EMERGENCY CONTROL CARD
+══════════════════════════════════════════════ */
+.emer-body {
+  padding: 11px 14px;
+  display: flex; flex-direction: column; gap: 9px;
+}
+.emer-btns {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 7px;
+}
+.emer-btns.two { grid-template-columns: 1fr 1fr; }
+.emer-btn {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 9px 8px; border-radius: var(--r-sm);
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--sans); font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: all .15s;
+  letter-spacing: .3px;
+}
+.emer-btn:hover  { background: var(--panel3); border-color: var(--border2); }
+.emer-btn:active { transform: translateY(1px); }
+.emer-btn.primary { color: var(--accent);  border-color: rgba(56,189,248,.28); }
+.emer-btn.primary:hover { background: rgba(56,189,248,.08); }
+.emer-btn.warn    { color: var(--yellow);  border-color: rgba(251,191,36,.3); }
+.emer-btn.warn:hover { background: rgba(251,191,36,.08); }
+.emer-btn.danger  { color: var(--red);     border-color: rgba(248,113,113,.35); background: rgba(248,113,113,.06); }
+.emer-btn.danger:hover { background: rgba(248,113,113,.18); }
+
+.emer-state {
+  display: flex; gap: 6px; align-items: center;
+  margin-left: auto;
+  font-family: var(--mono); font-size: 10px; font-weight: 700;
+  letter-spacing: .5px;
+  color: var(--muted);
+}
+.emer-state-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.emer-state.s-ok   { color: var(--green);  }
+.emer-state.s-ok   .emer-state-dot { background: var(--green);  animation: pulse 2s infinite; }
+.emer-state.s-warn { color: var(--yellow); }
+.emer-state.s-warn .emer-state-dot { background: var(--yellow); }
+.emer-state.s-err  { color: var(--red);    }
+.emer-state.s-err  .emer-state-dot { background: var(--red);    animation: pulse 1s infinite; }
+
+.emer-ack {
+  padding: 8px 11px; border-radius: var(--r-sm);
+  background: var(--panel3);
+  border: 1px solid var(--border);
+  font-family: var(--mono); font-size: 10px; color: var(--dim);
+  min-height: 16px;
+}
+.emer-ack.ok  { color: var(--green); border-color: rgba(74,222,128,.3);  background: rgba(74,222,128,.05); }
+.emer-ack.err { color: var(--red);   border-color: rgba(248,113,113,.3); background: rgba(248,113,113,.05); }
+.emer-ack.pending { color: var(--yellow); border-color: rgba(251,191,36,.3); }
+
+/* ══════════════════════════════════════════════
+   JOINT BARS
+══════════════════════════════════════════════ */
+.joint-row  { display:flex; align-items:center; gap:10px; }
+.joint-label {
+  font-family:var(--mono); font-size:10px; font-weight:700;
+  color:var(--dim); width:22px; flex-shrink:0;
+}
+.joint-track {
+  flex:1; height:7px; background:var(--panel3);
+  border-radius:4px; overflow:visible; position:relative;
+}
+.joint-fill {
+  height:100%; border-radius:4px;
+  transition: width .35s cubic-bezier(.4,0,.2,1);
+  position:relative;
+}
+.joint-fill::after {
+  content:''; position:absolute; right:-2px; top:-3px;
+  width:13px; height:13px; border-radius:50%;
+  background:inherit; opacity:.7;
+  box-shadow:0 0 8px currentColor;
+}
+.j1 .joint-fill { background:linear-gradient(90deg,#1d6fa4,var(--accent)); }
+.j2 .joint-fill { background:linear-gradient(90deg,#176090,#45aaf2); }
+.j3 .joint-fill { background:linear-gradient(90deg,#6b32b0,var(--purple)); }
+.j4 .joint-fill { background:linear-gradient(90deg,#5a28a0,#b06eed); }
+.j5 .joint-fill { background:linear-gradient(90deg,#1a7040,var(--green)); }
+.j6 .joint-fill { background:linear-gradient(90deg,#135530,#36d975); }
+.joint-val {
+  font-family:var(--mono); font-size:11px; font-weight:700;
+  width:54px; text-align:right; flex-shrink:0;
+  font-variant-numeric:tabular-nums;
+}
+.j1 .joint-val,.j2 .joint-val { color:var(--accent); }
+.j3 .joint-val,.j4 .joint-val { color:var(--purple); }
+.j5 .joint-val,.j6 .joint-val { color:var(--green); }
+
+/* ══════════════════════════════════════════════
+   STATUS TILES
+══════════════════════════════════════════════ */
+.stat-tile {
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  display: flex; flex-direction: column; gap: 6px;
+  transition: all .15s;
+}
+.stat-tile:hover { border-color:var(--border2); background:var(--panel3); }
+.stat-lbl {
+  font-size: 9px; font-weight: 600; color: var(--muted);
+  letter-spacing: 1.5px; text-transform: uppercase;
+}
+.stat-val {
+  font-family: var(--mono); font-size: 13px; font-weight: 700;
+  letter-spacing: .3px; display: flex; align-items: center; gap: 6px;
+}
+.stat-val.ok   { color:var(--green); }
+.stat-val.info { color:var(--accent); }
+.stat-val.warn { color:var(--yellow); }
+.stat-val.err  { color:var(--red); }
+.si { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+.si.ok   { background:var(--green);  box-shadow:0 0 6px var(--green); }
+.si.info { background:var(--accent); box-shadow:0 0 6px var(--accent); }
+.si.warn { background:var(--yellow); box-shadow:0 0 6px var(--yellow); }
+.si.err  { background:var(--red);    box-shadow:0 0 6px var(--red); }
+
+/* ══════════════════════════════════════════════
+   LOG PANEL
+══════════════════════════════════════════════ */
+.log-filters {
+  display:flex; gap:5px; padding:8px 12px;
+  border-bottom:1px solid var(--border);
+  flex-wrap:wrap; flex-shrink:0;
+}
+.lf-btn {
+  font-family:var(--mono); font-size:10px; font-weight:600;
+  padding:3px 10px; border-radius:5px;
+  border:1px solid var(--border);
+  background:var(--panel2); cursor:pointer; color:var(--dim);
+  transition:all .15s; letter-spacing:.5px;
+}
+.lf-btn:hover { color:var(--text); border-color:var(--border2); background:var(--panel3); }
+.lf-btn.on.all  { border-color:var(--border3); color:var(--text2); background:var(--panel3); }
+.lf-btn.on.INFO { border-color:rgba(56,189,248,.5); color:var(--accent);  background:rgba(56,189,248,.08); }
+.lf-btn.on.MOVE { border-color:rgba(251,191,36,.5); color:var(--yellow);  background:rgba(251,191,36,.08); }
+.lf-btn.on.COOK { border-color:rgba(251,146,60,.5); color:var(--orange);  background:rgba(251,146,60,.08); }
+.lf-btn.on.OK   { border-color:rgba(74,222,128,.5); color:var(--green);   background:rgba(74,222,128,.08); }
+.lf-btn.on.WARN { border-color:rgba(248,113,113,.5);color:var(--red);     background:rgba(248,113,113,.08); }
+
+.log-body {
+  overflow-y:auto; padding:6px 6px 6px 12px;
+  display:flex; flex-direction:column; gap:1px;
+}
+.log-entry {
+  display:flex; gap:8px; align-items:baseline;
+  padding:4px 6px; border-radius:5px;
+  animation: lfade .18s ease;
+  transition: background .12s;
+}
+.log-entry:hover { background:rgba(255,255,255,.04); }
+@keyframes lfade { from{opacity:0;transform:translateX(-3px)} to{opacity:1;transform:none} }
+.log-ts  { font-family:var(--mono); font-size:10px; color:var(--muted); white-space:nowrap; flex-shrink:0; }
+.log-lvl { font-family:var(--mono); font-size:10px; font-weight:700; min-width:42px; flex-shrink:0; }
+.log-lvl.INFO  { color:var(--accent); }
+.log-lvl.MOVE  { color:var(--yellow); }
+.log-lvl.GRIP  { color:var(--purple); }
+.log-lvl.COOK  { color:var(--orange); }
+.log-lvl.OK    { color:var(--green); }
+.log-lvl.WARN,.log-lvl.ERROR { color:var(--red); }
+.log-msg {
+  font-family:var(--mono); font-size:11px; color:var(--text2);
+  word-break:break-all; line-height:1.6;
+}
+.log-statsbar {
+  padding:6px 12px; border-top:1px solid var(--border);
+  display:flex; gap:12px; flex-shrink:0;
+  background:var(--panel2); flex-wrap:wrap;
+}
+.lstat { font-family:var(--mono); font-size:10px; display:flex; align-items:center; gap:5px; }
+.lstat-dot { width:5px; height:5px; border-radius:50%; }
+.lstat span { color:var(--dim); }
+
+/* ══════════════════════════════════════════════
+   RECIPE EDITOR VIEW
+══════════════════════════════════════════════ */
+.recipe-view {
+  display:none; flex:1; gap:10px; padding:10px;
+  overflow:hidden; min-height:0;
+}
+.recipe-view.active { display:flex; }
+@media(max-width:767px) { .recipe-view { flex-direction:column; overflow-y:auto; } }
+
+/* 사이드바 */
+.recipe-sidebar {
+  width:220px; flex-shrink:0;
+  background:var(--panel); border:1px solid var(--border);
+  border-radius:var(--r); display:flex; flex-direction:column; overflow:hidden;
+  box-shadow:var(--shadow);
+}
+@media(max-width:767px){ .recipe-sidebar{ width:100%; max-height:200px; } }
+.sidebar-hdr {
+  padding:10px 14px; border-bottom:1px solid var(--border);
+  display:flex; align-items:center; justify-content:space-between;
+  font-size:10px; font-weight:700; color:var(--text2);
+  letter-spacing:2px; text-transform:uppercase;
+  background:var(--panel2);
+}
+.btn-add-recipe {
+  font-size:20px; line-height:1; background:none; border:none;
+  color:var(--accent); cursor:pointer; padding:0 2px;
+  transition:transform .15s, color .15s;
+}
+.btn-add-recipe:hover { transform:scale(1.2); color:var(--text); }
+.recipe-list { flex:1; overflow-y:auto; padding:6px; display:flex; flex-direction:column; gap:4px; }
+.recipe-item {
+  padding:11px 13px; border-radius:7px; cursor:pointer;
+  border:1px solid transparent; transition:all .15s;
+  background:var(--panel2);
+}
+.recipe-item:hover { border-color:var(--border2); background:var(--panel3); }
+.recipe-item.selected {
+  border-color:var(--accent);
+  background:rgba(56,189,248,.07);
+}
+.recipe-item-name { font-size:13px; font-weight:700; color:var(--text); margin-bottom:4px; }
+.recipe-item-meta { font-size:10px; color:var(--dim); font-family:var(--mono); }
+
+/* 편집 패널 */
+.recipe-editor {
+  flex:1; background:var(--panel); border:1px solid var(--border);
+  border-radius:var(--r); display:flex; flex-direction:column;
+  overflow:hidden; min-width:0; box-shadow:var(--shadow);
+}
+.editor-placeholder {
+  flex:1; display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  color:var(--muted); gap:14px;
+}
+.editor-placeholder svg { opacity:.15; }
+.editor-placeholder p { font-size:13px; color:var(--dim); }
+.editor-body { flex:1; overflow-y:auto; display:none; flex-direction:column; }
+.editor-body.visible { display:flex; }
+
+/* 편집 섹션 */
+.ed-section { border-bottom:1px solid var(--border); }
+.ed-section-hdr {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:11px 16px; cursor:pointer; user-select:none;
+  background:var(--panel2); transition:background .12s;
+}
+.ed-section-hdr:hover { background:var(--panel3); }
+.ed-section-title {
+  font-size:11px; font-weight:700; color:var(--text2);
+  letter-spacing:1.5px; text-transform:uppercase;
+  display:flex; align-items:center; gap:9px;
+}
+.ed-section-badge {
+  font-size:9px; background:rgba(56,189,248,.1);
+  color:var(--accent); padding:2px 8px;
+  border-radius:10px; border:1px solid rgba(56,189,248,.2);
+  font-weight:600; letter-spacing:.5px;
+}
+.ed-chevron { font-size:10px; color:var(--dim); transition:transform .2s; }
+.ed-section-body { padding:14px 16px; display:flex; flex-direction:column; gap:9px; }
+.ed-section.collapsed .ed-section-body { display:none; }
+.ed-section.collapsed .ed-chevron { transform:rotate(-90deg); }
+
+/* 입력 필드 */
+.field-row  { display:flex; align-items:center; gap:10px; }
+.field-label { font-size:10px; font-weight:600; color:var(--dim); letter-spacing:1px; text-transform:uppercase; width:80px; flex-shrink:0; }
+.field-input {
+  flex:1; background:var(--panel2); border:1px solid var(--border);
+  color:var(--text); font-family:var(--mono); font-size:12px;
+  padding:7px 10px; border-radius:var(--r-sm); outline:none;
+  transition:border-color .15s;
+}
+.field-input:focus { border-color:var(--accent); background:var(--panel3); }
+
+/* 위치 탭 */
+.loc-tabs { display:flex; gap:5px; margin-bottom:10px; }
+.loc-tab {
+  font-size:10px; font-weight:700; padding:5px 12px;
+  border-radius:var(--r-sm); border:1px solid var(--border);
+  background:var(--panel2); color:var(--dim); cursor:pointer; transition:all .15s;
+}
+.loc-tab.active { border-color:var(--accent); color:var(--accent); background:rgba(56,189,248,.09); }
+
+/* 위치 테이블 */
+.loc-table { width:100%; border-collapse:collapse; font-size:11px; }
+.loc-table th {
+  font-size:9px; font-weight:700; color:var(--dim); letter-spacing:1px;
+  text-transform:uppercase; padding:6px 8px; border-bottom:1px solid var(--border); text-align:left;
+}
+.loc-table td { padding:5px 4px; vertical-align:middle; }
+.loc-table tr:hover td { background:rgba(255,255,255,.025); }
+.loc-input {
+  width:100%; background:var(--panel2); border:1px solid transparent;
+  color:var(--text); font-family:var(--mono); font-size:11px;
+  padding:5px 7px; border-radius:4px; outline:none; transition:border-color .15s;
+}
+.loc-input:focus { border-color:var(--accent); background:var(--panel3); }
+.btn-del-row {
+  background:none; border:none; cursor:pointer; color:var(--muted);
+  font-size:14px; padding:2px 6px; border-radius:4px; transition:color .15s; line-height:1;
+}
+.btn-del-row:hover { color:var(--red); }
+.btn-add-row {
+  font-size:11px; font-weight:600; color:var(--accent);
+  background:rgba(56,189,248,.06);
+  border:1px dashed rgba(56,189,248,.3);
+  border-radius:var(--r-sm); padding:6px 14px;
+  cursor:pointer; transition:all .15s; align-self:flex-start; margin-top:6px;
+}
+.btn-add-row:hover { background:rgba(56,189,248,.12); border-style:solid; }
+
+/* 시퀀스 스텝 */
+.step-card {
+  background:var(--panel2); border:1px solid var(--border);
+  border-radius:var(--r-sm); overflow:hidden; transition:border-color .15s;
+}
+.step-card:hover { border-color:var(--border2); }
+.step-header {
+  display:flex; align-items:center; gap:9px; padding:9px 13px;
+  cursor:pointer; background:var(--panel3); transition:background .12s;
+}
+.step-header:hover { background:rgba(255,255,255,.04); }
+.step-num {
+  width:24px; height:24px; border-radius:50%;
+  background:rgba(56,189,248,.12); border:1px solid rgba(56,189,248,.25);
+  color:var(--accent); font-size:10px; font-weight:700;
+  display:flex; align-items:center; justify-content:center; flex-shrink:0;
+}
+.step-action-badge { font-size:10px; font-weight:700; padding:3px 9px; border-radius:5px; font-family:var(--mono); }
+.action-PICK_UP { background:rgba(56,189,248,.12); color:var(--accent); }
+.action-MOVE_TO { background:rgba(251,191,36,.12); color:var(--yellow); }
+.action-PLACE   { background:rgba(192,132,252,.12); color:var(--purple); }
+.action-WAIT    { background:rgba(251,146,60,.12);  color:var(--orange); }
+.action-HOME    { background:rgba(74,222,128,.12);  color:var(--green); }
+.action-COOK    { background:rgba(251,146,60,.12);  color:var(--orange); }
+.step-desc    { font-size:12px; color:var(--text2); flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.step-target  { font-size:10px; color:var(--dim); font-family:var(--mono); }
+.step-controls{ display:flex; gap:3px; margin-left:auto; }
+.step-ctrl-btn {
+  background:none; border:none; cursor:pointer; color:var(--muted);
+  font-size:13px; padding:3px 6px; border-radius:4px; transition:all .12s;
+}
+.step-ctrl-btn:hover { color:var(--text); background:var(--panel); }
+.step-ctrl-btn.del:hover { color:var(--red); background:rgba(248,113,113,.08); }
+.step-body { padding:12px 13px; display:none; flex-direction:column; gap:9px; border-top:1px solid var(--border); background:var(--panel2); }
+.step-body.open { display:flex; }
+.step-grid { display:grid; grid-template-columns:1fr 1fr; gap:9px; }
+
+.action-select {
+  flex:1; background:var(--panel2); border:1px solid var(--border);
+  color:var(--text); font-family:var(--mono); font-size:12px;
+  padding:7px 10px; border-radius:var(--r-sm); outline:none; cursor:pointer;
+  transition:border-color .15s;
+}
+.action-select:focus { border-color:var(--accent); }
+option { background:#1C1C1C; }
+
+/* 하단 버튼바 */
+.editor-footer {
+  padding:12px 16px; border-top:1px solid var(--border);
+  display:flex; gap:9px; align-items:center;
+  background:var(--panel2); flex-shrink:0;
+}
+.btn-save {
+  flex:1; padding:10px; background:var(--accent); color:#000;
+  border:none; border-radius:var(--r-sm); font-size:13px; font-weight:800;
+  cursor:pointer; transition:all .15s; letter-spacing:.3px;
+}
+.btn-save:hover { filter:brightness(1.1); transform:translateY(-1px); box-shadow:0 4px 12px rgba(56,189,248,.3); }
+.btn-delete {
+  padding:10px 18px; background:rgba(248,113,113,.08); color:var(--red);
+  border:1px solid rgba(248,113,113,.25); border-radius:var(--r-sm);
+  font-size:13px; font-weight:700; cursor:pointer; transition:all .15s;
+}
+.btn-delete:hover { background:rgba(248,113,113,.16); border-color:rgba(248,113,113,.4); }
+
+/* Toast */
+.toast {
+  position:fixed; bottom:24px; left:50%;
+  transform:translateX(-50%) translateY(80px);
+  background:var(--panel2); border:1px solid var(--border); color:var(--text2);
+  font-size:13px; font-weight:600; padding:11px 24px; border-radius:9px;
+  box-shadow:var(--shadow-lg); transition:transform .25s ease; z-index:200;
+  pointer-events:none;
+}
+.toast.show { transform:translateX(-50%) translateY(0); }
+.toast.ok  { border-color:rgba(74,222,128,.4); color:var(--green); }
+.toast.err { border-color:rgba(248,113,113,.4); color:var(--red); }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── 좌표 스캔 버튼 ── */
+.scan-btn {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 14px; border-radius: 7px;
+  border: 1px solid var(--border2);
+  background: var(--panel2); color: var(--text2);
+  font-size: 11px; font-weight: 700;
+  cursor: pointer; transition: all .15s;
+  letter-spacing: .3px;
+}
+.scan-btn:hover { background: var(--panel3); border-color: var(--accent); color: var(--accent); }
+.scan-btn.active { background: rgba(56,189,248,.1); border-color: var(--accent); color: var(--accent); }
+
+/* ── 좌표 스캔 슬라이드 패널 ── */
+.scan-panel {
+  position: fixed;
+  top: 54px; right: 0; bottom: 0;
+  width: 420px;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  z-index: 90;
+  transform: translateX(100%);
+  transition: transform .28s cubic-bezier(.4,0,.2,1);
+  box-shadow: -8px 0 32px rgba(0,0,0,.5);
+}
+.scan-panel.open { transform: translateX(0); }
+@media(max-width:767px){
+  .scan-panel { width: 100%; top: 80px; }
+}
+
+.scan-panel-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+  background: var(--panel2); flex-shrink: 0;
+}
+.scan-panel-title { font-size: 12px; font-weight: 700; color: var(--text2); letter-spacing: 1.5px; text-transform: uppercase; flex: 1; }
+.scan-panel-close {
+  background: none; border: none; cursor: pointer;
+  color: var(--dim); padding: 4px; border-radius: 5px; transition: all .12s;
+}
+.scan-panel-close:hover { color: var(--text); background: var(--panel3); }
+
+/* 스캔 액션 바 */
+.scan-action-bar {
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+  display: flex; gap: 8px; align-items: center; flex-shrink: 0;
+  background: var(--panel2);
+}
+.btn-scan-now {
+  flex: 1; padding: 10px; border: none; border-radius: 8px;
+  background: var(--accent); color: #000;
+  font-size: 13px; font-weight: 800; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  transition: all .15s; letter-spacing: .3px;
+}
+.btn-scan-now:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-1px); }
+.btn-scan-now:disabled { background: var(--muted); cursor: not-allowed; color: var(--dim); }
+.btn-scan-clear {
+  padding: 10px 14px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--panel3); color: var(--dim);
+  font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s;
+}
+.btn-scan-clear:hover { color: var(--red); border-color: rgba(248,113,113,.35); }
+.scan-count { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+
+/* 스캔 결과 리스트 */
+.scan-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.scan-list::-webkit-scrollbar { width: 3px; }
+.scan-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+.scan-empty {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  color: var(--muted); gap: 12px;
+}
+.scan-empty p { font-size: 12px; }
+
+/* 스캔 결과 카드 */
+.scan-card {
+  background: var(--panel2); border: 1px solid var(--border);
+  border-radius: 9px; overflow: hidden;
+  animation: scanIn .2s ease;
+}
+@keyframes scanIn { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:none; } }
+.scan-card-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; background: var(--panel3);
+  border-bottom: 1px solid var(--border);
+}
+.scan-card-num {
+  width: 20px; height: 20px; border-radius: 50%;
+  background: rgba(56,189,248,.15); border: 1px solid rgba(56,189,248,.3);
+  color: var(--accent); font-size: 9px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  font-family: var(--mono);
+}
+.scan-card-ts { font-family: var(--mono); font-size: 10px; color: var(--dim); }
+.scan-card-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+
+/* 좌표 행 */
+.coord-row {
+  display: flex; flex-direction: column; gap: 4px;
+}
+.coord-row-label {
+  font-size: 9px; font-weight: 700; letter-spacing: 2px;
+  text-transform: uppercase;
+}
+.coord-row-label.tcp-label   { color: var(--accent); }
+.coord-row-label.joint-label { color: var(--purple); }
+.coord-values {
+  display: flex; gap: 4px; flex-wrap: wrap; align-items: center;
+}
+.coord-chip {
+  font-family: var(--mono); font-size: 11px; font-weight: 600;
+  padding: 3px 8px; border-radius: 5px;
+  background: var(--panel); border: 1px solid var(--border);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.coord-chip.tcp-chip   { border-color: rgba(56,189,248,.2);  color: #DFF0FF; }
+.coord-chip.joint-chip { border-color: rgba(192,132,252,.2); color: #EAE0FF; }
+
+/* 복사 버튼 */
+.copy-row { display: flex; gap: 6px; }
+.btn-copy {
+  flex: 1; padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px; background: var(--panel);
+  color: var(--dim); font-size: 10px; font-weight: 700;
+  cursor: pointer; transition: all .15s;
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+  font-family: var(--mono); letter-spacing: .3px;
+}
+.btn-copy:hover { background: var(--panel3); color: var(--text); border-color: var(--border2); }
+.btn-copy.copied { border-color: var(--green); color: var(--green); background: rgba(74,222,128,.07); }
+
+/* Firebase 저장 버튼 */
+.btn-save-fb {
+  width: 100%; margin-top: 6px; padding: 7px 10px;
+  border: 1px dashed rgba(56,189,248,.35);
+  border-radius: 6px; background: rgba(56,189,248,.04);
+  color: var(--accent); font-size: 10px; font-weight: 700;
+  cursor: pointer; transition: all .15s;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  font-family: var(--mono); letter-spacing: .3px;
+}
+.btn-save-fb:hover { background: rgba(56,189,248,.10); border-style: solid; }
+.btn-save-fb.saved { border-color: var(--green); color: var(--green); background: rgba(74,222,128,.07); border-style: solid; }
+.btn-save-fb:disabled { opacity: .4; cursor: not-allowed; }
+
+/* Lucide 아이콘 기본 스타일 ── */
+.lucide, [data-lucide] {
+  display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0;
+  stroke-width: 1.8;
+}
+.icon-sm  { width:13px; height:13px; }
+.icon-md  { width:15px; height:15px; }
+.icon-lg  { width:18px; height:18px; }
+.icon-xl  { width:22px; height:22px; }
+.icon-2xl { width:32px; height:32px; }
+/* 카드 헤더 아이콘 색상 */
+.card-header .lucide { color: var(--text2); }
+</style>
+</head>
+<body>
+
+<!-- ── DESKTOP HEADER ── -->
+<header>
+  <div class="logo">
+    <div class="logo-icon"><i data-lucide="bot" class="icon-xl" style="color:#fff"></i></div>
+    <div class="logo-text">
+      <div class="brand">ROBO CHEF</div>
+      <div class="sub">Admin Monitor · Debug</div>
+    </div>
+  </div>
+  <div class="nav-pills">
+    <a class="nav-pill" href="https://kiosk.thatshoon.com">
+      <i data-lucide="shopping-cart" class="icon-sm" style="margin-right:5px"></i>키오스크
+    </a>
+    <a class="nav-pill" href="https://status.thatshoon.com">
+      <i data-lucide="tv-2" class="icon-sm" style="margin-right:5px"></i>조리 현황
+    </a>
+    <a class="nav-pill active" href="https://admin.thatshoon.com">
+      <i data-lucide="monitor-check" class="icon-sm" style="margin-right:5px"></i>관리자 모니터
+    </a>
+  </div>
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab('monitor')">
+      <i data-lucide="monitor" class="icon-sm" style="margin-right:4px"></i>모니터링
+    </button>
+    <button class="tab-btn" onclick="switchTab('recipe')">
+      <i data-lucide="book-open" class="icon-sm" style="margin-right:4px"></i>레시피 관리
+    </button>
+  </div>
+  <div class="hdr-right">
+    <button class="scan-btn" onclick="toggleScanPanel()" id="scanBtn" title="좌표 기록">
+      <i data-lucide="bookmark-plus" class="icon-md"></i>
+      <span>좌표 기록</span>
+    </button>
+    <div class="badge online"><div class="pulse"></div>SYSTEM ONLINE</div>
+    <div id="clock"></div>
+  </div>
+</header>
+
+<!-- ── MOBILE HEADER ── -->
+<div class="hdr-mob">
+  <div class="hdr-mob-logo">
+    <div class="hdr-mob-icon"><i data-lucide="bot" class="icon-lg" style="color:#fff"></i></div>
+    <div class="hdr-mob-brand">ROBO CHEF</div>
+  </div>
+  <div class="hdr-mob-right">
+    <div class="badge-sm"><div class="pulse"></div>ONLINE</div>
+    <div id="clockM"></div>
+  </div>
+</div>
+
+<!-- ── VIEW: 모니터링 ── -->
+<div class="view active" id="view-monitor" style="flex-direction:column;">
+<div class="main">
+
+  <!-- LEFT COL -->
+  <div class="col-left">
+    <div class="card cam-card">
+      <div class="card-header">
+        <i data-lucide="video" class="icon-md" style="color:var(--green)"></i>
+        <div class="card-title">LIVE FEED</div>
+        <div class="card-badge">CAM_01</div>
+      </div>
+      <div class="cam-body">
+        <video id="videoEl" autoplay playsinline muted></video>
+        <div id="noCam" class="no-cam" style="display:none">
+          <i data-lucide="camera-off" class="icon-2xl" style="opacity:.3"></i>
+          <span>카메라 연결 대기 중</span>
+        </div>
+        <div class="cam-overlay">
+          <div class="cb cb-tl"></div><div class="cb cb-tr"></div>
+          <div class="cb cb-bl"></div><div class="cb cb-br"></div>
+          <div class="crosshair"></div>
+          <div class="scan-line"></div>
+          <div class="cam-hud">
+            <div class="rec-badge"><div class="rec-dot"></div>REC LIVE</div>
+            <div class="hud-info">
+              <div id="camTs"></div>
+              <div>1920×1080 · 30fps</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CENTER COL -->
+  <div class="col-center">
+
+    <!-- TASK SPACE COORDINATES -->
+    <div class="card coord-card">
+      <div class="card-header">
+        <i data-lucide="crosshair" class="icon-md" style="color:var(--accent)"></i>
+        <div class="card-title">TCP 좌표</div>
+        <div class="card-badge">TASK SPACE · BASE FRAME</div>
+        <div id="coordStatus" style="margin-left:auto;display:flex;align-items:center;gap:5px;font-size:10px;font-family:var(--mono);color:var(--dim)">
+          <span id="coordDot" style="width:6px;height:6px;border-radius:50%;background:var(--muted);display:inline-block"></span>
+          <span id="coordStatusTxt">대기 중</span>
+        </div>
+      </div>
+      <div class="coord-sections">
+        <div class="coord-section">
+          <div class="section-label pos-label">POSITION</div>
+          <div class="axes-grid">
+            <div class="axis-item pos-item">
+              <div class="axis-name">X</div>
+              <span class="axis-value" id="cx">325.4</span>
+              <div class="axis-unit">mm</div>
+            </div>
+            <div class="axis-item pos-item">
+              <div class="axis-name">Y</div>
+              <span class="axis-value" id="cy">−120.7</span>
+              <div class="axis-unit">mm</div>
+            </div>
+            <div class="axis-item pos-item">
+              <div class="axis-name">Z</div>
+              <span class="axis-value" id="cz">450.2</span>
+              <div class="axis-unit">mm</div>
+            </div>
+          </div>
+        </div>
+        <div class="coord-section">
+          <div class="section-label rot-label">ROTATION</div>
+          <div class="axes-grid">
+            <div class="axis-item rot-item">
+              <div class="axis-name">Rx</div>
+              <span class="axis-value" id="crx">0.0</span>
+              <div class="axis-unit">deg</div>
+            </div>
+            <div class="axis-item rot-item">
+              <div class="axis-name">Ry</div>
+              <span class="axis-value" id="cry">−90.0</span>
+              <div class="axis-unit">deg</div>
+            </div>
+            <div class="axis-item rot-item">
+              <div class="axis-name">Rz</div>
+              <span class="axis-value" id="crz">180.0</span>
+              <div class="axis-unit">deg</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- JOINT SPACE -->
+    <div class="card joint-card">
+      <div class="card-header">
+        <i data-lucide="activity" class="icon-md" style="color:var(--purple)"></i>
+        <div class="card-title">JOINT 좌표</div>
+        <div class="card-badge">JOINT SPACE · 6-DOF</div>
+      </div>
+      <div class="coord-sections">
+        <div class="coord-section">
+          <div class="section-label" style="color:var(--purple);border-color:rgba(192,132,252,.25)">J1 — J3</div>
+          <div class="axes-grid">
+            <div class="axis-item" style="border-top:2px solid rgba(192,132,252,.4)">
+              <div class="axis-name" style="color:var(--purple)">J1</div>
+              <span class="axis-value" id="jv1">0.0</span>
+              <div class="axis-unit">deg</div>
+            </div>
+            <div class="axis-item" style="border-top:2px solid rgba(192,132,252,.4)">
+              <div class="axis-name" style="color:var(--purple)">J2</div>
+              <span class="axis-value" id="jv2">0.0</span>
+              <div class="axis-unit">deg</div>
+            </div>
+            <div class="axis-item" style="border-top:2px solid rgba(192,132,252,.4)">
+              <div class="axis-name" style="color:var(--purple)">J3</div>
+              <span class="axis-value" id="jv3">0.0</span>
+              <div class="axis-unit">deg</div>
+            </div>
+          </div>
+        </div>
+        <div class="coord-section">
+          <div class="section-label" style="color:var(--purple);border-color:rgba(192,132,252,.25)">J4 — J6</div>
+          <div class="axes-grid">
+            <div class="axis-item" style="border-top:2px solid rgba(192,132,252,.4)">
+              <div class="axis-name" style="color:var(--purple)">J4</div>
+              <span class="axis-value" id="jv4">0.0</span>
+              <div class="axis-unit">deg</div>
+            </div>
+            <div class="axis-item" style="border-top:2px solid rgba(192,132,252,.4)">
+              <div class="axis-name" style="color:var(--purple)">J5</div>
+              <span class="axis-value" id="jv5">0.0</span>
+              <div class="axis-unit">deg</div>
+            </div>
+            <div class="axis-item" style="border-top:2px solid rgba(192,132,252,.4)">
+              <div class="axis-name" style="color:var(--purple)">J6</div>
+              <span class="axis-value" id="jv6">0.0</span>
+              <div class="axis-unit">deg</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- STATUS -->
+    <div class="card status-card">
+      <div class="card-header">
+        <i data-lucide="gauge" class="icon-md" style="color:var(--yellow)"></i>
+        <div class="card-title">시스템 상태</div>
+      </div>
+      <div class="status-grid">
+        <div class="stat-tile">
+          <div class="stat-lbl">로봇 상태</div>
+          <div class="stat-val ok" id="robState"><div class="si ok"></div>IDLE</div>
+        </div>
+        <div class="stat-tile">
+          <div class="stat-lbl">동작 모드</div>
+          <div class="stat-val warn" id="modeVal"><div class="si warn"></div>SIM</div>
+        </div>
+        <div class="stat-tile">
+          <div class="stat-lbl">에러 코드</div>
+          <div class="stat-val ok" id="errVal"><div class="si ok"></div>NONE</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- EMERGENCY CONTROL -->
+    <div class="card emer-card">
+      <div class="card-header">
+        <i data-lucide="octagon-alert" class="icon-md" style="color:var(--red)"></i>
+        <div class="card-title">긴급 제어</div>
+        <div class="emer-state" id="emerState">
+          <div class="emer-state-dot"></div>
+          <span id="emerStateCode">--</span>
+          <span id="emerStateName">WAIT</span>
+        </div>
+      </div>
+      <div class="emer-body">
+        <div class="emer-btns">
+          <button class="emer-btn primary" onclick="sendSafetyCmd('pause')">
+            <i data-lucide="pause" class="icon-sm"></i>일시정지
+          </button>
+          <button class="emer-btn primary" onclick="sendSafetyCmd('resume')">
+            <i data-lucide="play" class="icon-sm"></i>재개
+          </button>
+          <button class="emer-btn danger" onclick="sendSafetyCmd('stop', true)">
+            <i data-lucide="square" class="icon-sm"></i>정지
+          </button>
+        </div>
+        <div class="emer-btns">
+          <button class="emer-btn warn" onclick="sendSafetyCmd('reset_safe_stop', true)">
+            <i data-lucide="rotate-ccw" class="icon-sm"></i>노란불 리셋
+          </button>
+          <button class="emer-btn warn" onclick="sendSafetyCmd('servo_on', true)">
+            <i data-lucide="power" class="icon-sm"></i>서보 ON
+          </button>
+          <button class="emer-btn danger" onclick="sendSafetyCmd('servo_off', true)">
+            <i data-lucide="power-off" class="icon-sm"></i>서보 OFF
+          </button>
+        </div>
+        <div class="emer-ack" id="emerAck">응답 대기…</div>
+      </div>
+    </div>
+
+  </div><!-- /col-center -->
+
+  <!-- RIGHT COL: LOG -->
+  <div class="col-right">
+    <div class="card log-card">
+      <div class="card-header">
+        <i data-lucide="scroll-text" class="icon-md" style="color:var(--orange)"></i>
+        <div class="card-title">프로세스 로그</div>
+        <div class="card-badge" id="logCount">0 entries</div>
+      </div>
+      <div class="log-filters">
+        <button class="lf-btn on all" onclick="setFilter(this,'ALL')">ALL</button>
+        <button class="lf-btn"        onclick="setFilter(this,'INFO')">INFO</button>
+        <button class="lf-btn"        onclick="setFilter(this,'MOVE')">MOVE</button>
+        <button class="lf-btn"        onclick="setFilter(this,'COOK')">COOK</button>
+        <button class="lf-btn"        onclick="setFilter(this,'OK')">OK</button>
+        <button class="lf-btn"        onclick="setFilter(this,'WARN')">WARN</button>
+        <button class="lf-btn"        onclick="setFilter(this,'ERROR')">ERROR</button>
+      </div>
+      <div class="log-body" id="logBody"></div>
+      <div class="log-statsbar">
+        <div class="lstat"><div class="lstat-dot" style="background:var(--cyan)"></div><span>INFO <b id="cntINFO" style="color:var(--text)">0</b></span></div>
+        <div class="lstat"><div class="lstat-dot" style="background:var(--yellow)"></div><span>MOVE <b id="cntMOVE" style="color:var(--text)">0</b></span></div>
+        <div class="lstat"><div class="lstat-dot" style="background:var(--orange)"></div><span>COOK <b id="cntCOOK" style="color:var(--text)">0</b></span></div>
+        <div class="lstat"><div class="lstat-dot" style="background:var(--green)"></div><span>OK <b id="cntOK" style="color:var(--text)">0</b></span></div>
+        <div class="lstat"><div class="lstat-dot" style="background:var(--red)"></div><span>WARN <b id="cntWARN" style="color:var(--text)">0</b></span></div>
+        <div class="lstat"><div class="lstat-dot" style="background:#ff4444"></div><span>ERROR <b id="cntERROR" style="color:var(--text)">0</b></span></div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /main -->
+</div><!-- /view-monitor -->
+
+<!-- ── VIEW: 레시피 관리 ── -->
+<div class="view" id="view-recipe" style="flex-direction:column;">
+<div class="recipe-view active">
+
+  <!-- 사이드바: 레시피 목록 -->
+  <div class="recipe-sidebar">
+    <div class="sidebar-hdr">
+      <i data-lucide="book-open" class="icon-sm" style="margin-right:6px"></i>RECIPES
+      <button class="btn-add-recipe" onclick="newRecipe()" title="새 레시피">
+        <i data-lucide="plus" class="icon-md"></i>
+      </button>
+    </div>
+    <div class="recipe-list" id="recipeList">
+      <div style="padding:20px;text-align:center;color:var(--muted);font-size:12px;">로딩 중...</div>
+    </div>
+  </div>
+
+  <!-- 편집 패널 -->
+  <div class="recipe-editor">
+    <div class="card-header">
+      <i data-lucide="pencil" class="icon-md" style="color:var(--green)"></i>
+      <div class="card-title" id="editorTitle">레시피 편집</div>
+      <div class="card-badge" id="editorBadge">선택 없음</div>
+    </div>
+
+    <!-- placeholder -->
+    <div class="editor-placeholder" id="editorPlaceholder">
+      <i data-lucide="file-text" style="width:48px;height:48px;opacity:.2;color:var(--dim)"></i>
+      <p>왼쪽에서 레시피를 선택하거나 새로 추가하세요</p>
+    </div>
+
+    <!-- 편집 본문 -->
+    <div class="editor-body" id="editorBody">
+
+      <!-- 기본 정보 -->
+      <div class="ed-section" id="sec-info">
+        <div class="ed-section-hdr" onclick="toggleSection('sec-info')">
+          <div class="ed-section-title">기본 정보 <span class="ed-section-badge">BASIC</span></div>
+          <span class="ed-chevron">▾</span>
+        </div>
+        <div class="ed-section-body">
+          <div class="field-row">
+            <div class="field-label">Recipe ID</div>
+            <input class="field-input" id="f-recipe-id" placeholder="KIMCHI_STEW_001" spellcheck="false">
+          </div>
+          <div class="field-row">
+            <div class="field-label">이름</div>
+            <input class="field-input" id="f-recipe-name" placeholder="김치찌개" spellcheck="false">
+          </div>
+          <div class="field-row">
+            <div class="field-label">총 단계</div>
+            <input class="field-input" id="f-total-steps" type="number" min="1" style="width:80px;flex:none;">
+          </div>
+        </div>
+      </div>
+
+      <!-- 위치 데이터 -->
+      <div class="ed-section" id="sec-loc">
+        <div class="ed-section-hdr" onclick="toggleSection('sec-loc')">
+          <div class="ed-section-title">위치 데이터 <span class="ed-section-badge">LOCATIONS</span></div>
+          <span class="ed-chevron">▾</span>
+        </div>
+        <div class="ed-section-body">
+          <div class="loc-tabs" id="locTabs"></div>
+          <div id="locTableWrap"></div>
+        </div>
+      </div>
+
+      <!-- 시퀀스 -->
+      <div class="ed-section" id="sec-seq">
+        <div class="ed-section-hdr" onclick="toggleSection('sec-seq')">
+          <div class="ed-section-title">시퀀스 <span class="ed-section-badge" id="seqBadge">0 STEPS</span></div>
+          <span class="ed-chevron">▾</span>
+        </div>
+        <div class="ed-section-body" id="seqBody"></div>
+      </div>
+
+    </div><!-- /editor-body -->
+
+    <!-- 하단 버튼바 -->
+    <div class="editor-footer" id="editorFooter" style="display:none;">
+      <button class="btn-save"   onclick="saveRecipe()">
+        <i data-lucide="cloud-upload" class="icon-md" style="margin-right:6px"></i>Firebase에 저장
+      </button>
+      <button class="btn-delete" onclick="deleteRecipe()">
+        <i data-lucide="trash-2" class="icon-md" style="margin-right:5px"></i>삭제
+      </button>
+      <span class="save-msg" id="saveMsg"></span>
+    </div>
+  </div>
+
+</div><!-- /recipe-view -->
+</div><!-- /view-recipe -->
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- ── 좌표 기록 슬라이드 패널 ── -->
+<div class="scan-panel" id="scanPanel">
+  <div class="scan-panel-header">
+    <i data-lucide="bookmark-plus" class="icon-md" style="color:var(--accent)"></i>
+    <div class="scan-panel-title">좌표 기록</div>
+    <button class="scan-panel-close" onclick="toggleScanPanel()">
+      <i data-lucide="x" class="icon-md"></i>
+    </button>
+  </div>
+
+  <div class="scan-action-bar">
+    <button class="btn-scan-now" id="btnScanNow" onclick="doRecord()">
+      <i data-lucide="bookmark" class="icon-md"></i>
+      기록
+    </button>
+    <button class="btn-scan-clear" onclick="clearScans()">
+      <i data-lucide="trash-2" class="icon-sm"></i>
+    </button>
+    <span class="scan-count" id="scanCount">0 회</span>
+  </div>
+
+  <div class="scan-list" id="scanList">
+    <div class="scan-empty" id="scanEmpty">
+      <i data-lucide="bookmark" style="width:40px;height:40px;opacity:.2;color:var(--dim)"></i>
+      <p>기록 버튼을 눌러 현재 좌표를 저장하세요</p>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Firebase 초기화 ─────────────────────────────────────────────
+const lerp = (a,b,t) => a+(b-a)*t;
+const jit  = (v,d)   => v+(Math.random()-.5)*d;
+const degToTrack = d => Math.max(2, Math.min(98, (d+180)/360*100));
+
+// 표시용 현재값 (부드러운 lerp 적용)
+let dispJ   = [0,0,90,0,90,0];
+let tgtJ    = [...dispJ];
+let dispTcp = {x:0,y:0,z:0,rx:0,ry:0,rz:0};
+let tgtTcp  = {...dispTcp};
+
+// 마지막 telemetry 수신 시각 (ms) — stale 감지용
+let _lastTelemetryMs = 0;
+
+// TCP 좌표계는 서브노드 backend/fk_worker 가 Firebase /robot_state.tcp_position 에 기록.
+// 여기서는 Firebase 값을 그대로 읽기만 한다.
+
+// ── LOG SYSTEM 전역 상태 (Firebase 초기화 전 addLog 호출이 있으므로 먼저 선언) ──
+let filterActive = 'ALL';
+let logAll = [];
+const cnts = {INFO:0,MOVE:0,GRIP:0,COOK:0,OK:0,WARN:0,ERROR:0};
+
+// Firebase 실시간 구독
+let firebaseDB = null;
+let _fbConnected = false;
+let _coordLive = false;
+
+try {
+  firebase.initializeApp(FIREBASE_CONFIG);
+  firebaseDB = firebase.database();
+  _fbConnected = true;
+  console.log('[AdminMonitor] Firebase 연결 완료');
+  subscribeFirebase();
+} catch(e) {
+  console.warn('[AdminMonitor] Firebase 연결 실패:', e.message);
+  addLog('WARN', 'Firebase 연결 실패: ' + e.message);
+}
+
+// 실시간 좌표 폴링 — Firebase 연결 여부와 무관하게 항상 시작
+startCoordPolling();
+
+function subscribeFirebase() {
+  // ── /robot_state 단일 구독 ──
+  //   joint_positions : coord_service (main-node) 가 2Hz 로 merge-update
+  //   tcp_position    : fk_worker     (sub-node)  가 2Hz 로 FK 후 merge-update
+  //   mode            : coord_service SafetyBridge 가 GetRobotState 결과 반영
+  //   → 이 페이지는 읽기만. FK 재계산 안 함.
+  firebaseDB.ref('/robot_state').on('value', snap => {
+    const s = snap.val();
+    if (!s) return;
+    _updateStateTiles(s);                              // robot_status / mode / error_code
+    if (Array.isArray(s.joint_positions) && s.joint_positions.length >= 6) {
+      tgtJ = s.joint_positions.slice(0, 6).map(Number);
+    }
+    if (s.tcp_position && typeof s.tcp_position === 'object') {
+      tgtTcp = {
+        x:  Number(s.tcp_position.x)  || 0,
+        y:  Number(s.tcp_position.y)  || 0,
+        z:  Number(s.tcp_position.z)  || 0,
+        rx: Number(s.tcp_position.rx) || 0,
+        ry: Number(s.tcp_position.ry) || 0,
+        rz: Number(s.tcp_position.rz) || 0,
+      };
+    }
+    _lastTelemetryMs = Date.now();
+    _setCoordStatus('live');
+    if (s.mode) _setRobotState(null, s.mode);          // LED / 모드 표시 (코드 없이 name 기반)
+  });
+
+  // stale 감지 — 3초 이상 수신 없으면 wait 표시
+  setInterval(() => {
+    if (_lastTelemetryMs && Date.now() - _lastTelemetryMs > 3000 && _coordLive) {
+      _setCoordStatus('wait');
+    }
+  }, 1000);
+
+  // ── 긴급 제어 ACK 실시간 구독 ─────────────────────────────────
+  firebaseDB.ref('/commands/robot_ack').on('value', snap => {
+    const a = snap.val();
+    if (!a) return;
+    _setEmerAck({ ok: a.ok, cmd: a.cmd, detail: a.detail, elapsed: a.elapsed_sec });
+  });
+
+  // ── 로그 실시간 구독 ──────────────────────────────────────────
+  // (A) robo_chef 등의 의미 로그 (/logs) — 최근 200개
+  firebaseDB.ref('/logs').orderByKey().limitToLast(200).on('child_added', snap => {
+    const log = snap.val();
+    if (!log) return;
+    const ts  = _fmtTs(log.timestamp);
+    const lvl = log.level || 'INFO';
+    const msg = log.message || '';
+    _addLogEntry({ts, lvl, msg});
+  });
+
+  // (B) ROS2 /rosout 중계 로그 (/dsr_log) — 최근 300개, 출력 순서대로
+  firebaseDB.ref('/dsr_log').orderByKey().limitToLast(300).on('child_added', snap => {
+    const log = snap.val();
+    if (!log) return;
+    const ts  = _fmtTs(log.timestamp);
+    const lvl = _mapDsrLevel(log.level);
+    const msg = `[${log.node || '?'}] ${log.message || ''}`;
+    _addLogEntry({ts, lvl, msg});
+  });
+
+  _setStat('modeVal', '<div class="si ok"></div>LIVE', 'ok');
+  addLog('INFO', 'Firebase 실시간 연결 완료', 'system');
+}
+
+function _fmtTs(isoStr) {
+  if (!isoStr) return new Date().toLocaleTimeString('ko-KR',{hour12:false});
+  try {
+    return new Date(isoStr).toLocaleTimeString('ko-KR',{hour12:false});
+  } catch { return isoStr.slice(11,19); }
+}
+
+// ROS2 log level → 기존 로그 필터 버킷
+function _mapDsrLevel(lvl) {
+  const s = String(lvl || '').toUpperCase();
+  if (s === 'ERROR' || s === 'FATAL') return 'ERROR';
+  if (s === 'WARN')  return 'WARN';
+  return 'INFO';
+}
+
+function _updateStateTiles(s) {
+  const statusCls = {
+    IDLE:'ok', MOVING:'info', GRIPPING:'info',
+    COOKING:'info', CAUTION:'warn', ERROR:'err', STANDBY:'ok',
+  };
+
+  const rs = document.getElementById('robState');
+  if (rs) {
+    const status = s.robot_status || 'IDLE';
+    const cls    = statusCls[status] || 'ok';
+    rs.className = 'stat-val '+cls;
+    rs.innerHTML = `<div class="si ${cls}"></div>${status}`;
+  }
+
+  // 동작 모드 (AUTONOMOUS=ok, MANUAL=warn, SIM=warn)
+  const mode    = s.mode || 'SIM';
+  const modeCls = mode === 'AUTONOMOUS' ? 'ok' : 'warn';
+  _setStat('modeVal', `<div class="si ${modeCls}"></div>${mode}`, modeCls);
+
+  // 에러 코드
+  const hasErr = s.error_code && s.error_code !== 'NONE';
+  _setStat('errVal',
+    `<div class="si ${hasErr ? 'err' : 'ok'}"></div>${s.error_code || 'NONE'}`,
+    hasErr ? 'err' : 'ok');
+}
+
+function _setStat(id, html, cls) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.className = 'stat-val ' + cls;
+  el.innerHTML = html;
+}
+
+// ── lerp 애니메이션 루프 (60fps) ──────────────────────────────
+function tickCoords() {
+  const T = 0.2;
+  for (let i=0;i<6;i++) dispJ[i] = lerp(dispJ[i], tgtJ[i], T);
+  for (const k of ['x','y','z','rx','ry','rz'])
+    dispTcp[k] = lerp(dispTcp[k]||0, tgtTcp[k]||0, T);
+
+  document.getElementById('cx').textContent  = dispTcp.x.toFixed(1);
+  document.getElementById('cy').textContent  = dispTcp.y.toFixed(1);
+  document.getElementById('cz').textContent  = dispTcp.z.toFixed(1);
+  document.getElementById('crx').textContent = dispTcp.rx.toFixed(1);
+  document.getElementById('cry').textContent = dispTcp.ry.toFixed(1);
+  document.getElementById('crz').textContent = dispTcp.rz.toFixed(1);
+
+  for (let i=0;i<6;i++) {
+    document.getElementById('jv'+(i+1)).textContent = dispJ[i].toFixed(1);
+  }
+}
+setInterval(tickCoords, 50);
+
+// ── LOG SYSTEM ─────────────────────────────────────────────────
+
+function addLog(lvl, msg, source) {
+  const ts = new Date().toLocaleTimeString('ko-KR',{hour12:false});
+  _addLogEntry({ts, lvl, msg});
+}
+
+function _addLogEntry(entry) {
+  logAll.push(entry);
+  cnts[entry.lvl] = (cnts[entry.lvl]||0)+1;
+  updateStats();
+  if (filterActive !== 'ALL' && filterActive !== entry.lvl) return;
+  renderEntry(entry);
+}
+
+function renderEntry(entry) {
+  const el = document.getElementById('logBody');
+  const div = document.createElement('div');
+  div.className = 'log-entry';
+  div.innerHTML =
+    `<span class="log-ts">${entry.ts}</span>`+
+    `<span class="log-lvl ${entry.lvl}">${entry.lvl}</span>`+
+    `<span class="log-msg">${entry.msg}</span>`;
+  el.appendChild(div);
+  if (el.children.length > 200) el.removeChild(el.firstChild);
+  el.scrollTop = el.scrollHeight;
+}
+
+function updateStats() {
+  document.getElementById('logCount').textContent = logAll.length + ' entries';
+  ['INFO','MOVE','COOK','OK','WARN','ERROR'].forEach(k => {
+    const el = document.getElementById('cnt'+k);
+    if (el) el.textContent = cnts[k]||0;
+  });
+}
+
+function setFilter(btn, f) {
+  document.querySelectorAll('.lf-btn').forEach(b => {
+    b.classList.remove('on','all','INFO','MOVE','COOK','OK','WARN');
+  });
+  btn.classList.add('on', f==='ALL'?'all':f);
+  filterActive = f;
+  const el = document.getElementById('logBody');
+  el.innerHTML = '';
+  logAll.filter(e => f==='ALL'||e.lvl===f).slice(-200).forEach(renderEntry);
+  el.scrollTop = el.scrollHeight;
+}
+
+
+// ── CAMERA ─────────────────────────────────────────────────────
+(async () => {
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({video:true});
+    document.getElementById('videoEl').srcObject = s;
+  } catch(e) {
+    document.getElementById('videoEl').style.display = 'none';
+    document.getElementById('noCam').style.display   = 'flex';
+  }
+})();
+
+// ── CLOCK ──────────────────────────────────────────────────────
+function updateClock() {
+  const t = new Date().toLocaleTimeString('ko-KR',{hour12:false});
+  ['clock','clockM','camTs'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = t;
+  });
+}
+updateClock();
+setInterval(updateClock, 1000);
+
+// ══════════════════════════════════════════════════════════════
+//  좌표 스캔 패널
+// ══════════════════════════════════════════════════════════════
+let _scanPanelOpen = false;
+let _scans         = [];
+let _scanIdx       = 0;
+let _scanUid       = 0;   // 각 스캔 항목의 고유 ID
+let _scanning      = false;
+
+function toggleScanPanel() {
+  _scanPanelOpen = !_scanPanelOpen;
+  document.getElementById('scanPanel').classList.toggle('open', _scanPanelOpen);
+  document.getElementById('scanBtn').classList.toggle('active', _scanPanelOpen);
+  if (_scanPanelOpen) refreshIcons();
+}
+
+// ── 실시간 좌표 API 폴링 ───────────────────────────────────────
+function _setCoordStatus(state, msg) {
+  const dot = document.getElementById('coordDot');
+  const txt = document.getElementById('coordStatusTxt');
+  if (!dot || !txt) return;
+  if (state === 'live') {
+    dot.style.background = 'var(--green)';
+    txt.style.color = 'var(--green)';
+    txt.textContent = 'LIVE';
+    _coordLive = true;
+  } else if (state === 'wait') {
+    dot.style.background = 'var(--yellow, #fbbf24)';
+    txt.style.color = 'var(--dim)';
+    txt.textContent = '대기 중';
+    _coordLive = false;
+  } else {
+    dot.style.background = 'var(--red)';
+    txt.style.color = 'var(--red)';
+    txt.textContent = msg ? msg.slice(0,20) : '연결 끊김';
+    _coordLive = false;
+  }
+}
+
+async function _pollCoords() {
+  // Firebase listen 이 정상 수신 중이면 폴링 스킵 (3초 내 최신 데이터 있음)
+  if (_lastTelemetryMs && Date.now() - _lastTelemetryMs < 3000) return;
+  try {
+    const res  = await fetch(`${BACKEND_URL}/api/robot/coords`,
+                             { signal: AbortSignal.timeout(3000) });
+    const data = await res.json();
+    if (res.ok && !data.error) {
+      if (Array.isArray(data.joint) && data.joint.length >= 6) {
+        tgtJ = data.joint.slice(0, 6).map(Number);
+      }
+      // backend 가 tcp_position 객체로 주면 그대로, 배열로 주면 매핑
+      if (data.tcp_position && typeof data.tcp_position === 'object') {
+        tgtTcp = { ...tgtTcp, ...data.tcp_position };
+      } else if (Array.isArray(data.tcp) && data.tcp.length >= 6) {
+        tgtTcp = {
+          x: Number(data.tcp[0]) || 0, y: Number(data.tcp[1]) || 0, z: Number(data.tcp[2]) || 0,
+          rx:Number(data.tcp[3]) || 0, ry:Number(data.tcp[4]) || 0, rz:Number(data.tcp[5]) || 0,
+        };
+      }
+      _setCoordStatus('live');
+    } else {
+      _setCoordStatus('err', data.error || '응답 오류');
+    }
+  } catch(e) {
+    _setCoordStatus('err', e.message || '연결 실패');
+  }
+}
+
+function startCoordPolling() {
+  _setCoordStatus('wait');
+  _pollCoords();
+  setInterval(_pollCoords, 1500);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  SAFETY CONTROL — /commands/robot · /commands/robot_ack · /telemetry/robot_state
+// ══════════════════════════════════════════════════════════════
+const _SAFETY_LABELS = {
+  pause:            '일시정지',
+  resume:           '재개',
+  stop:             '모션 정지',
+  reset_safe_stop:  '안전정지 리셋(노란불)',
+  servo_on:         '서보 ON (E-Stop 해제 후)',
+  servo_off:        '서보 OFF (모터 전원 차단)',
+  servo_off_quick:  '서보 OFF (Quick)',
+};
+
+function sendSafetyCmd(cmd, needConfirm) {
+  if (needConfirm) {
+    const label = _SAFETY_LABELS[cmd] || cmd;
+    if (!confirm(`"${label}" 명령을 로봇에 전송합니다. 계속하시겠습니까?`)) return;
+  }
+  if (!firebaseDB) {
+    addLog('ERROR', 'safety: Firebase 미연결');
+    showToast && showToast('Firebase 미연결', 'err');
+    return;
+  }
+  const payload = { cmd, issued_at: new Date().toISOString() };
+  firebaseDB.ref('/commands/robot').set(payload)
+    .then(() => {
+      addLog('INFO', `safety: ${cmd} 전송`);
+      _setEmerAck({ pending: true, cmd });
+    })
+    .catch(e => {
+      addLog('ERROR', `safety 전송 실패: ${e.message}`);
+      _setEmerAck({ ok: false, cmd, detail: e.message });
+    });
+}
+
+function _setEmerAck({ pending, ok, cmd, detail, elapsed }) {
+  const el = document.getElementById('emerAck');
+  if (!el) return;
+  if (pending) {
+    el.className = 'emer-ack pending';
+    el.textContent = `${cmd} 처리 중…`;
+    return;
+  }
+  const tag = ok ? 'OK' : 'FAIL';
+  el.className = 'emer-ack ' + (ok ? 'ok' : 'err');
+  el.textContent = `${cmd}: ${tag} · ${detail || ''}${elapsed != null ? ` (${elapsed}s)` : ''}`;
+}
+
+// robot_state code/name → 색/표시 (code 없이 name 만 와도 동작)
+function _setRobotState(code, name) {
+  const wrap = document.getElementById('emerState');
+  const cEl  = document.getElementById('emerStateCode');
+  const nEl  = document.getElementById('emerStateName');
+  if (!wrap) return;
+  cEl.textContent = (code != null) ? String(code) : '--';
+  nEl.textContent = name || 'UNKNOWN';
+  // 상태별 색 — code 우선, 없으면 name 으로 분류
+  //   ok(초록):   1 STANDBY
+  //   warn(노랑): 5 SAFE_STOP, 9 SAFE_STOP2
+  //   err(빨강):  3 SAFE_OFF, 6 EMERGENCY_STOP, 10 SAFE_OFF2, 15 NOT_READY
+  let cls = '';
+  if (code != null) {
+    if (code === 1) cls = 's-ok';
+    else if (code === 5 || code === 9) cls = 's-warn';
+    else if ([3,6,10,15].includes(code)) cls = 's-err';
+  } else if (name) {
+    if (name === 'STANDBY' || name === 'MOVING') cls = 's-ok';
+    else if (name === 'SAFE_STOP' || name === 'SAFE_STOP2') cls = 's-warn';
+    else if (['SAFE_OFF','EMERGENCY_STOP','SAFE_OFF2','NOT_READY'].includes(name)) cls = 's-err';
+  }
+  wrap.className = 'emer-state ' + cls;
+}
+
+// ── 좌표 기록 ─────────────────────────────────────────────────
+function doRecord() {
+  if (!_coordLive) {
+    showToast('실시간 좌표 수신 대기 중', 'warn');
+    return;
+  }
+
+  const joint = dispJ.map(v => parseFloat(v.toFixed(3)));
+  const tcp   = ['x','y','z','rx','ry','rz']
+                  .map(k => parseFloat((dispTcp[k]||0).toFixed(3)));
+
+  _scans.unshift({
+    uid:   ++_scanUid,
+    idx:   ++_scanIdx,
+    ts:    new Date().toLocaleTimeString('ko-KR', {hour12:false}),
+    tsISO: new Date().toISOString(),
+    joint,
+    tcp,
+    source: 'ros2',
+    saved:  false,
+  });
+
+  renderScans();
+  showToast('좌표 기록 완료', 'ok');
+}
+
+function clearScans() {
+  _scans = [];
+  _scanIdx = 0;
+  renderScans();
+}
+
+function renderScans() {
+  const listEl  = document.getElementById('scanList');
+  const emptyEl = document.getElementById('scanEmpty');
+  const countEl = document.getElementById('scanCount');
+
+  countEl.textContent = `${_scans.length} 회`;
+
+  if (_scans.length === 0) {
+    emptyEl.style.display = 'flex';
+    // remove cards
+    [...listEl.children].forEach(c => { if (!c.classList.contains('scan-empty')) c.remove(); });
+    return;
+  }
+
+  emptyEl.style.display = 'none';
+  listEl.innerHTML = '';
+  listEl.appendChild(emptyEl); // keep empty div
+
+  _scans.forEach(s => {
+    const card = document.createElement('div');
+    card.className = 'scan-card';
+
+    // 에러 카드 — tcp/joint 없음
+    if (s.source === 'error') {
+      card.innerHTML = `
+        <div class="scan-card-header" style="border-bottom:none">
+          <div class="scan-card-num" style="background:rgba(248,113,113,.15);border-color:rgba(248,113,113,.3);color:var(--red)">${s.idx}</div>
+          <span class="scan-card-ts">${s.ts}</span>
+          <span style="font-size:9px;padding:1px 6px;border-radius:4px;background:rgba(248,113,113,.12);color:var(--red);font-family:var(--mono);font-weight:700;margin-left:auto">미응답</span>
+        </div>
+        <div style="padding:10px 14px;font-size:11px;color:var(--dim);font-family:var(--mono)">
+          <i data-lucide="wifi-off" style="width:12px;height:12px;margin-right:6px;vertical-align:middle;color:var(--red)"></i>
+          ROS2 서비스 응답 없음
+          <div style="margin-top:4px;font-size:10px;color:var(--muted)">${s.error}</div>
+        </div>`;
+      listEl.insertBefore(card, emptyEl.nextSibling || null);
+      return;
+    }
+
+    // 정상 카드 — tcp/joint 존재 보장 후 렌더
+    const tcp   = Array.isArray(s.tcp)   ? s.tcp   : [0,0,0,0,0,0];
+    const joint = Array.isArray(s.joint) ? s.joint : [0,0,0,0,0,0];
+
+    const fmt = v => (typeof v === 'number') ? (v >= 0 ? '+'+v.toFixed(2) : v.toFixed(2)) : v;
+    const fmtCopy = arr => arr.map(v => typeof v==='number' ? v.toFixed(2) : v).join(',');
+
+    const tcpLabels = ['X','Y','Z','Rx','Ry','Rz'];
+    const jntLabels = ['J1','J2','J3','J4','J5','J6'];
+
+    const tcpChips    = tcp.map(v   => `<span class="coord-chip tcp-chip">${fmt(v)}</span>`).join('');
+    const jointChips  = joint.map(v => `<span class="coord-chip joint-chip">${fmt(v)}</span>`).join('');
+    const tcpDetail   = tcp.map((v,i)   => `<span class="coord-chip tcp-chip"   title="${tcpLabels[i]}">${fmt(v)}</span>`).join('');
+    const jointDetail = joint.map((v,i) => `<span class="coord-chip joint-chip" title="${jntLabels[i]}">${fmt(v)}</span>`).join('');
+
+    const srcBadge = `<span style="font-size:9px;padding:1px 6px;border-radius:4px;background:rgba(56,189,248,.12);color:var(--accent);font-family:var(--mono);font-weight:700;margin-left:auto">ROS2</span>`;
+
+    card.innerHTML = `
+      <div class="scan-card-header">
+        <div class="scan-card-num">${s.idx}</div>
+        <span class="scan-card-ts">${s.ts}</span>
+        ${srcBadge}
+      </div>
+      <div class="scan-card-body">
+        <div class="coord-row">
+          <div class="coord-row-label tcp-label">
+            <i data-lucide="crosshair" style="width:9px;height:9px;margin-right:4px;vertical-align:middle"></i>
+            TCP POSITION (mm / °)
+          </div>
+          <div class="coord-values">${tcpDetail}</div>
+        </div>
+        <div class="coord-row">
+          <div class="coord-row-label joint-label">
+            <i data-lucide="activity" style="width:9px;height:9px;margin-right:4px;vertical-align:middle"></i>
+            JOINT ANGLE (°)
+          </div>
+          <div class="coord-values">${jointDetail}</div>
+        </div>
+        <div class="copy-row">
+          <button class="btn-copy" onclick="copyCoords(this, '${fmtCopy(tcp)}')">
+            ${icon('copy',11,'margin-right:4px')} TCP 복사
+          </button>
+          <button class="btn-copy" onclick="copyCoords(this, '${fmtCopy(joint)}')">
+            ${icon('copy',11,'margin-right:4px')} Joint 복사
+          </button>
+          <button class="btn-copy" onclick="copyCoords(this, '${fmtCopy([...tcp,...joint])}')">
+            ${icon('copy',11,'margin-right:4px')} 전체
+          </button>
+        </div>
+        <button class="btn-save-fb" id="saveFb-${s.uid}" onclick="saveToFirebase(this, ${s.uid})">
+          ${icon('cloud-upload',12,'margin-right:5px')} Firebase에 저장
+        </button>
+      </div>`;
+
+    listEl.insertBefore(card, emptyEl.nextSibling || null);
+  });
+
+  refreshIcons();
+}
+
+async function saveToFirebase(btn, uid) {
+  const scan = _scans.find(s => s.uid === uid);
+  if (!scan) return;
+
+  if (!firebaseDB) {
+    showToast('Firebase 미연결 — 저장 불가', 'err');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = `${icon('loader',12,'margin-right:5px;animation:spin 1s linear infinite')} 저장 중...`;
+  refreshIcons();
+
+  try {
+    const payload = {
+      timestamp:   scan.tsISO,
+      label:       `기록 #${scan.idx}  ${scan.ts}`,
+      tcp:         scan.tcp,    // [x, y, z, rx, ry, rz]
+      joint:       scan.joint,  // [j1 .. j6]
+      saved_at:    new Date().toISOString(),
+    };
+
+    await firebaseDB.ref('/saved_coords').push(payload);
+
+    scan.saved = true;
+    btn.classList.add('saved');
+    btn.innerHTML = `${icon('check',12,'margin-right:5px')} 저장 완료`;
+    refreshIcons();
+    showToast(`기록 #${scan.idx} Firebase 저장 완료`, 'ok');
+
+  } catch(e) {
+    btn.disabled = false;
+    btn.innerHTML = `${icon('cloud-upload',12,'margin-right:5px')} Firebase에 저장`;
+    refreshIcons();
+    showToast('저장 실패: ' + e.message, 'err');
+  }
+}
+
+function copyCoords(btn, csvStr) {
+  navigator.clipboard.writeText(csvStr).then(() => {
+    btn.classList.add('copied');
+    const orig = btn.innerHTML;
+    btn.innerHTML = `${icon('check',11,'margin-right:4px')} 복사됨`;
+    refreshIcons();
+    setTimeout(() => {
+      btn.classList.remove('copied');
+      btn.innerHTML = orig;
+      refreshIcons();
+    }, 1800);
+  }).catch(() => {
+    // fallback
+    const ta = document.createElement('textarea');
+    ta.value = csvStr;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    showToast('복사 완료: ' + csvStr, 'ok');
+  });
+}
+
+// ── Lucide 아이콘 헬퍼 ─────────────────────────────────────────
+function icon(name, sz=14, style='') {
+  return `<i data-lucide="${name}" style="width:${sz}px;height:${sz}px;display:inline-block;vertical-align:middle;flex-shrink:0;${style}"></i>`;
+}
+function refreshIcons() {
+  if (window.lucide) lucide.createIcons();
+}
+// 초기 아이콘 렌더
+document.addEventListener('DOMContentLoaded', refreshIcons);
+
+// ══════════════════════════════════════════════════════════════
+//  TAB SWITCHER
+// ══════════════════════════════════════════════════════════════
+function switchTab(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('view-' + name).classList.add('active');
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    if (b.textContent.includes(name === 'monitor' ? '모니터링' : '레시피')) b.classList.add('active');
+  });
+  if (name === 'recipe') loadRecipeList();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  TOAST
+// ══════════════════════════════════════════════════════════════
+function showToast(msg, type='ok') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className   = 'toast ' + type;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  RECIPE STATE
+// ══════════════════════════════════════════════════════════════
+let _recipes   = {};          // { recipeId: recipeData }
+let _activeId  = null;        // 현재 선택된 recipe id
+let _locations = {};          // 편집 중인 locations 객체
+let _sequence  = [];          // 편집 중인 sequence 배열
+let _locCat    = 'INGREDIENTS'; // 현재 위치 탭
+
+// ── 레시피 목록 로드 ─────────────────────────────────────────────
+async function loadRecipeList() {
+  const listEl = document.getElementById('recipeList');
+  listEl.innerHTML = '<div style="padding:16px;text-align:center;color:var(--muted);font-size:12px;">로딩 중...</div>';
+
+  try {
+    if (!firebaseDB) throw new Error('Firebase 미연결');
+    const snap = await firebaseDB.ref('/recipes').once('value');
+    _recipes = snap.val() || {};
+  } catch(e) {
+    listEl.innerHTML = `<div style="padding:16px;color:var(--red);font-size:11px;">로드 실패: ${e.message}</div>`;
+    return;
+  }
+
+  if (Object.keys(_recipes).length === 0) {
+    listEl.innerHTML = '<div style="padding:16px;text-align:center;color:var(--muted);font-size:12px;">레시피 없음</div>';
+    return;
+  }
+
+  listEl.innerHTML = '';
+  Object.entries(_recipes).forEach(([id, r]) => {
+    const div = document.createElement('div');
+    div.className = 'recipe-item' + (id === _activeId ? ' selected' : '');
+    div.dataset.id = id;
+    div.innerHTML  = `
+      <div class="recipe-item-name">${r.recipe_name || id}</div>
+      <div class="recipe-item-meta">${id} · ${r.total_steps || 0}단계</div>`;
+    div.onclick = () => selectRecipe(id);
+    listEl.appendChild(div);
+  });
+}
+
+// ── 레시피 선택 ──────────────────────────────────────────────────
+function selectRecipe(id) {
+  _activeId = id;
+  const r   = _recipes[id];
+
+  // 사이드바 선택 표시
+  document.querySelectorAll('.recipe-item').forEach(el =>
+    el.classList.toggle('selected', el.dataset.id === id));
+
+  // 헤더
+  document.getElementById('editorTitle').textContent = r.recipe_name || id;
+  document.getElementById('editorBadge').textContent = id;
+
+  // placeholder ↔ body
+  document.getElementById('editorPlaceholder').style.display = 'none';
+  document.getElementById('editorBody').classList.add('visible');
+  document.getElementById('editorFooter').style.display      = 'flex';
+
+  // 기본 정보
+  document.getElementById('f-recipe-id').value    = r.recipe_id || id;
+  document.getElementById('f-recipe-name').value  = r.recipe_name || '';
+  document.getElementById('f-total-steps').value  = r.total_steps || 0;
+
+  // locations
+  _locations = JSON.parse(JSON.stringify(r.locations || {}));
+  renderLocTabs();
+
+  // sequence
+  _sequence = JSON.parse(JSON.stringify(r.sequence || []));
+  _syncTotalSteps();
+  renderSequence();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  LOCATIONS
+// ══════════════════════════════════════════════════════════════
+const LOC_CATEGORIES = ['INGREDIENTS','TOOLS','COOKING_ZONE'];
+
+function renderLocTabs() {
+  const tabsEl = document.getElementById('locTabs');
+  tabsEl.innerHTML = LOC_CATEGORIES.map(cat => `
+    <button class="loc-tab ${cat === _locCat ? 'active' : ''}"
+            onclick="selectLocCat('${cat}')">${cat}</button>`).join('');
+  renderLocTable();
+}
+
+function selectLocCat(cat) {
+  _locCat = cat;
+  renderLocTabs();
+}
+
+function renderLocTable() {
+  const wrap = document.getElementById('locTableWrap');
+  const items = _locations[_locCat] || {};
+  const entries = Object.entries(items);
+
+  wrap.innerHTML = `
+    <table class="loc-table">
+      <thead><tr>
+        <th style="width:120px">이름</th>
+        <th>ID</th>
+        <th>X</th><th>Y</th><th>Z</th>
+        <th>타입</th>
+        <th style="width:30px"></th>
+      </tr></thead>
+      <tbody id="locTbody"></tbody>
+    </table>
+    <button class="btn-add-row" onclick="addLocRow()">
+      ${icon('plus',12,'margin-right:5px')} 위치 추가
+    </button>`;
+  refreshIcons();
+
+  const tbody = document.getElementById('locTbody');
+  entries.forEach(([name, loc]) => tbody.appendChild(makeLocRow(name, loc)));
+}
+
+function makeLocRow(name, loc) {
+  const tr = document.createElement('tr');
+  tr.dataset.locName = name;
+  const coord = loc.coord || [0,0,0];
+  tr.innerHTML = `
+    <td><input class="loc-input" value="${name}" onchange="renameLocRow(this,'${name}')" style="width:110px"></td>
+    <td><input class="loc-input" value="${loc.id||''}" onchange="updateLocField(this,'${name}','id')" style="width:70px"></td>
+    <td><input class="loc-input" type="number" step="0.1" value="${coord[0]||0}" onchange="updateLocCoord(this,'${name}',0)" style="width:70px"></td>
+    <td><input class="loc-input" type="number" step="0.1" value="${coord[1]||0}" onchange="updateLocCoord(this,'${name}',1)" style="width:70px"></td>
+    <td><input class="loc-input" type="number" step="0.1" value="${coord[2]||0}" onchange="updateLocCoord(this,'${name}',2)" style="width:70px"></td>
+    <td><input class="loc-input" value="${loc.type||'tray'}" onchange="updateLocField(this,'${name}','type')" style="width:70px"></td>
+    <td><button class="btn-del-row" onclick="delLocRow('${name}')">${icon('x',13)}</button></td>`;
+  return tr;
+}
+
+function addLocRow() {
+  const newName = 'NEW_' + Date.now().toString().slice(-4);
+  if (!_locations[_locCat]) _locations[_locCat] = {};
+  _locations[_locCat][newName] = {id:'', coord:[0,0,0], type:'tray'};
+  renderLocTable();
+}
+function delLocRow(name) {
+  delete _locations[_locCat][name];
+  renderLocTable();
+}
+function renameLocRow(input, oldName) {
+  const newName = input.value.trim().toUpperCase().replace(/\s+/g,'_');
+  if (!newName || newName === oldName) return;
+  _locations[_locCat][newName] = _locations[_locCat][oldName];
+  delete _locations[_locCat][oldName];
+  renderLocTable();
+}
+function updateLocField(input, name, field) {
+  if (!_locations[_locCat][name]) return;
+  _locations[_locCat][name][field] = input.value;
+}
+function updateLocCoord(input, name, idx) {
+  if (!_locations[_locCat][name]) return;
+  if (!_locations[_locCat][name].coord) _locations[_locCat][name].coord = [0,0,0];
+  _locations[_locCat][name].coord[idx] = parseFloat(input.value) || 0;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  SEQUENCE
+// ══════════════════════════════════════════════════════════════
+const ACTIONS = ['HOME','PICK_UP','MOVE_TO','PLACE','WAIT','COOK'];
+
+function renderSequence() {
+  // 현재 열린 step 인덱스 저장
+  const openSet = new Set();
+  document.querySelectorAll('.step-card').forEach(card => {
+    const body = card.querySelector('.step-body');
+    if (body && body.classList.contains('open'))
+      openSet.add(parseInt(card.dataset.idx));
+  });
+
+  const body = document.getElementById('seqBody');
+  document.getElementById('seqBadge').textContent = _sequence.length + ' STEPS';
+  body.innerHTML = '';
+  _sequence.forEach((step, idx) => body.appendChild(makeStepCard(step, idx)));
+
+  // 열린 상태 복원
+  openSet.forEach(idx => {
+    const sb = document.getElementById('stepBody-' + idx);
+    if (sb) sb.classList.add('open');
+  });
+
+  const addBtn = document.createElement('button');
+  addBtn.className = 'btn-add-row';
+  addBtn.style.marginTop = '4px';
+  addBtn.innerHTML = `${icon('plus',12,'margin-right:5px')} 단계 추가`;
+  addBtn.onclick = addStep;
+  body.appendChild(addBtn);
+  refreshIcons();
+}
+
+function makeStepCard(step, idx) {
+  const div = document.createElement('div');
+  div.className   = 'step-card';
+  div.dataset.idx = idx;
+
+  const actionCls = 'action-' + (step.action || 'HOME');
+  div.innerHTML = `
+    <div class="step-header" onclick="toggleStep(${idx})">
+      <div class="step-num">${idx+1}</div>
+      <span class="step-action-badge ${actionCls}">${step.action||'?'}</span>
+      <span class="step-target">${step.target||''}</span>
+      <span class="step-desc">${step.description||''}</span>
+      <div class="step-controls">
+        <button class="step-ctrl-btn" onclick="moveStep(event,${idx},-1)" title="위로">${icon('chevron-up',14)}</button>
+        <button class="step-ctrl-btn" onclick="moveStep(event,${idx},+1)" title="아래로">${icon('chevron-down',14)}</button>
+        <button class="step-ctrl-btn del" onclick="deleteStep(event,${idx})" title="삭제">${icon('trash-2',13)}</button>
+      </div>
+    </div>
+    <div class="step-body" id="stepBody-${idx}">
+      <div class="step-grid">
+        <div class="field-row">
+          <div class="field-label">Action</div>
+          <select class="action-select" onchange="updateStep(${idx},'action',this.value)">
+            ${ACTIONS.map(a=>`<option ${a===step.action?'selected':''}>${a}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field-row">
+          <div class="field-label">Target</div>
+          <input class="field-input" value="${step.target||''}" placeholder="KIMCHI"
+                 onchange="updateStep(${idx},'target',this.value)">
+        </div>
+        <div class="field-row">
+          <div class="field-label">Path</div>
+          <input class="field-input" value="${step.path||''}" placeholder="JOINT_MOVE"
+                 onchange="updateStep(${idx},'path',this.value)">
+        </div>
+        <div class="field-row">
+          <div class="field-label">설명</div>
+          <input class="field-input" value="${step.description||''}" placeholder="동작 설명"
+                 onchange="updateStep(${idx},'description',this.value)">
+        </div>
+      </div>
+      <div class="field-row" style="margin-top:4px">
+        <div class="field-label">Params</div>
+        <input class="field-input" value='${JSON.stringify(step.params||{})}' placeholder='{}'
+               onchange="updateStepParams(${idx},this.value)" style="font-size:11px">
+      </div>
+    </div>`;
+  return div;
+}
+
+function toggleStep(idx) {
+  const body = document.getElementById('stepBody-'+idx);
+  if (body) body.classList.toggle('open');
+}
+function moveStep(e, idx, dir) {
+  e.stopPropagation();
+  const newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= _sequence.length) return;
+  [_sequence[idx], _sequence[newIdx]] = [_sequence[newIdx], _sequence[idx]];
+  _sequence.forEach((s,i) => s.step = i+1);
+  renderSequence();
+}
+function deleteStep(e, idx) {
+  e.stopPropagation();
+  if (!confirm(`Step ${idx+1}을 삭제하시겠습니까?`)) return;
+  _sequence.splice(idx, 1);
+  _sequence.forEach((s,i) => s.step = i+1);
+  _syncTotalSteps();
+  renderSequence();
+}
+function updateStep(idx, field, val) {
+  if (!_sequence[idx]) return;
+  _sequence[idx][field] = val;
+  // 전체 재렌더 없이 카드 헤더만 업데이트
+  const card = document.querySelector(`.step-card[data-idx="${idx}"]`);
+  if (!card) return;
+  if (field === 'action') {
+    const badge = card.querySelector('.step-action-badge');
+    if (badge) { badge.className = 'step-action-badge action-' + val; badge.textContent = val; }
+  } else if (field === 'target') {
+    const el = card.querySelector('.step-target');
+    if (el) el.textContent = val || '';
+  } else if (field === 'description') {
+    const el = card.querySelector('.step-desc');
+    if (el) el.textContent = val || '';
+  } else if (field === 'path') {
+    // 헤더에 표시 없음, data만 업데이트
+  }
+}
+function updateStepParams(idx, val) {
+  try { _sequence[idx].params = JSON.parse(val); } catch(e) { /* invalid JSON skip */ }
+}
+function _syncTotalSteps() {
+  const el = document.getElementById('f-total-steps');
+  if (el) el.value = _sequence.length;
+}
+function addStep() {
+  _sequence.push({
+    step: _sequence.length + 1,
+    action: 'HOME', target: null,
+    params: {}, description: '새 단계',
+  });
+  _syncTotalSteps();
+  renderSequence();
+  // 새 스텝 펼치기
+  setTimeout(() => {
+    const body = document.getElementById('stepBody-' + (_sequence.length-1));
+    if (body) body.classList.add('open');
+  }, 50);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  SAVE / DELETE / NEW
+// ══════════════════════════════════════════════════════════════
+async function saveRecipe() {
+  if (!firebaseDB) { showToast('Firebase 미연결', 'err'); return; }
+
+  const id   = document.getElementById('f-recipe-id').value.trim().toUpperCase().replace(/\s+/g,'_');
+  const name = document.getElementById('f-recipe-name').value.trim();
+  if (!id || !name) { showToast('ID와 이름을 입력하세요', 'err'); return; }
+
+  // sequence step 번호 재정렬
+  _sequence.forEach((s,i) => s.step = i+1);
+
+  const data = {
+    recipe_id:   id,
+    recipe_name: name,
+    total_steps: parseInt(document.getElementById('f-total-steps').value) || _sequence.length,
+    locations:   _locations,
+    sequence:    _sequence,
+  };
+
+  const saveBtn = document.getElementById('editorFooter').querySelector('.btn-save');
+  saveBtn.textContent = '저장 중...';
+  saveBtn.disabled    = true;
+
+  try {
+    // 기존 id와 다르면 구 키 삭제
+    if (_activeId && _activeId !== id) {
+      await firebaseDB.ref('/recipes/' + _activeId).remove();
+    }
+    await firebaseDB.ref('/recipes/' + id).set(data);
+    _activeId   = id;
+    _recipes[id] = data;
+    await loadRecipeList();
+    // 저장 후 해당 레시피 재선택 유지
+    document.querySelectorAll('.recipe-item').forEach(el =>
+      el.classList.toggle('selected', el.dataset.id === id));
+    showToast(`✓ "${name}" 저장 완료`, 'ok');
+  } catch(e) {
+    showToast('저장 실패: ' + e.message, 'err');
+  } finally {
+    saveBtn.innerHTML = `<i data-lucide="cloud-upload" style="width:14px;height:14px;margin-right:6px;vertical-align:middle"></i>Firebase에 저장`;
+    saveBtn.disabled  = false;
+    refreshIcons();
+  }
+}
+
+async function deleteRecipe() {
+  if (!_activeId) return;
+  const name = _recipes[_activeId]?.recipe_name || _activeId;
+  if (!confirm(`"${name}" 레시피를 삭제하시겠습니까?`)) return;
+  if (!firebaseDB) { showToast('Firebase 미연결', 'err'); return; }
+
+  try {
+    await firebaseDB.ref('/recipes/' + _activeId).remove();
+    delete _recipes[_activeId];
+    _activeId = null;
+    // 에디터 초기화
+    document.getElementById('editorPlaceholder').style.display = 'flex';
+    document.getElementById('editorBody').classList.remove('visible');
+    document.getElementById('editorFooter').style.display      = 'none';
+    document.getElementById('editorTitle').textContent = '레시피 편집';
+    document.getElementById('editorBadge').textContent = '선택 없음';
+    await loadRecipeList();
+    showToast(`"${name}" 삭제됨`, 'ok');
+  } catch(e) {
+    showToast('삭제 실패: ' + e.message, 'err');
+  }
+}
+
+function newRecipe() {
+  _activeId  = null;
+  _locations = { INGREDIENTS:{}, TOOLS:{}, COOKING_ZONE:{} };
+  _sequence  = [];
+  _locCat    = 'INGREDIENTS';
+
+  document.querySelectorAll('.recipe-item').forEach(el => el.classList.remove('selected'));
+  document.getElementById('editorTitle').textContent = '새 레시피';
+  document.getElementById('editorBadge').textContent = 'NEW';
+  document.getElementById('editorPlaceholder').style.display = 'none';
+  document.getElementById('editorBody').classList.add('visible');
+  document.getElementById('editorFooter').style.display      = 'flex';
+
+  document.getElementById('f-recipe-id').value   = '';
+  document.getElementById('f-recipe-name').value = '';
+
+  renderLocTabs();
+  _syncTotalSteps();
+  renderSequence();
+}
+
+// ── 섹션 접기/펼치기 ──────────────────────────────────────────────
+function toggleSection(id) {
+  document.getElementById(id).classList.toggle('collapsed');
+}
+</script>
+</body>
+</html>

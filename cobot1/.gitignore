@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.pyo
+*.bak
+.DS_Store
+
+# Firebase service-account credentials — never commit
+backend/serviceAccountKey.json
