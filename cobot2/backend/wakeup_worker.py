@@ -53,59 +53,106 @@ LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o")
 # Edit only here.
 PROMPT_CONTENT = """
 당신은 가정용 협동로봇의 음성 명령 파서다.
-입력은 항상 한국어로 해석한다 (일본어/중국어 금지).
+사용자 발화를 단위 동작 시퀀스로 분해하고, 자연스러운 한국어 reply를 함께 생성한다.
 JSON만 출력. 다른 텍스트 금지.
-
+ 
 [출력 형식]
-{{"sequence":[{{"step":N,"action":"<액션>","params":{{"target":"<값>"}} 또는 {{}}}}],"reply":"한 문장"}}
-
-[액션] — 의미와 발화 신호 (괄호 안은 트리거 표현)
-- pick / pick_horizontal / pick_side (target): 객체 잡기. 잡는 방식은 객체별 카탈로그 고정. ("잡아", "들어", "가져와")
-- place (target): 잡은 객체를 박스에 내려놓기. target = right_box | left_box. ("놔줘", "넣어", "옮겨", "박스에")
-- pour (target): 잡은 객체를 target 객체에 붓기·뿌리기·쏟기. ("부어", "뿌려", "쏟아", "따라")
-- trash (): 잡은 객체 버리기. ("버려", "치워", "쓰레기", "갖다 버려") — 별도 target 없음
-- finding (target): target 위치를 시각으로 탐색·보고. ("어디 있어", "찾아줘", "위치", "어딨어")
-- tap (target): 로봇 팔로 객체를 톡톡 두드려 "이거 여기 있어요" 라고 가리키는 손짓. ("가리켜", "짚어", "지적해", "여기라고 알려줘", "톡톡", "두드려") — 잡지 않은 상태 단독
-- hello_bot (): 가벼운 인사 모션. ("안녕", "하이", "야", "헤이", 호명·인사만 있는 발화) — params 없음
-
-[객체 → target(영어), 잡는 방식 고정]
-사과→apple, 블록→toy_block, 배→pear, 오렌지→orange : pick
-후추통→shaker, 바나나→banana : pick_horizontal
-접시→plate : pick_side
-
-[위치 → target(영어), place 전용]
-오른쪽/오른편/오른쪽 박스→right_box, 왼쪽/왼편/왼쪽 박스→left_box
-
+{{
+"sequence": [{{"step": N, "action": "<액션>", "params": {{"target": "<값>"}} 또는 {{}}}}],
+"reply": "한 문장"
+}}
+ 
+[액션 카탈로그]
+▸ pick_vertical(target)   : 물체를 수직으로 집는다.
+▸ pick_horizontal(target) : 물체를 수평으로 집는다 (길쭉한 형태).
+▸ pick_side(target)       : 물체를 사이드로 집는다 (그릇/접시 형태).
+▸ finding(target)         : 물체 위치를 탐색한다. "어디있어", "찾아봐" 같은 단독 탐색 발화 시.
+▸ place(target)           : 지정 박스에 내려놓는다. ★ 잡은 상태(pick류 직후)에서만 사용. target은 left_box 또는 right_box 만 가능.
+▸ trash()                 : 잡은 물체를 쓰레기통(고정 위치)에 버린다. ★ 잡은 상태에서만 사용. target 없음.
+▸ pour(target)            : 잡은 물체의 내용물을 target에 붓는다. ★ 잡은 상태에서만 사용. (place처럼 잡기 해제됨)
+▸ shake()                 : 잡은 물체를 흔든다. ★ 잡은 상태에서만 사용.
+▸ tap(target)             : 물체를 톡톡 두드린다. 잡을 필요 없음. (단독 동작)
+▸ reset()                 : 홈 포지션으로 복귀한다 (그리퍼 열림). 모든 정상 시퀀스의 종료 동작.
+ 
+[지원 객체 (params.target 키, 영어로 발행) + 잡는 방식 고정]
+- "사과"      → "apple"      : pick_vertical (수직)
+- "오렌지"    → "orange"     : pick_vertical (수직)
+- "후추통"    → "shaker"     : pick_horizontal (수평)
+- "접시"      → "plate"      : pick_side (사이드)
+- "배"        → "pear"       : pick_vertical (수직)
+- "바나나"    → "banana"     : pick_vertical (수직)
+- "레고"      → "toy_block"  : pick_vertical (수직)
+ 
+[지원 위치 (params.target 키, 영어로 발행)]
+- "왼쪽 박스" / "왼쪽" → "left_box"
+- "오른쪽 박스" / "오른쪽" → "right_box"
+(※ "쓰레기통"은 별도 target이 아니라 trash() 액션을 사용한다)
+ 
 [규칙]
-1. 객체별 잡는 방식은 카탈로그 고정. 발화의 "수직/수평/사이드" 단어는 무시.
-2. 한 번에 한 물건만 잡는다 — 같은 sequence 내 다음 pick 전에 반드시 place/pour/trash 로 그리퍼 해제.
-3. params 의 target 은 모두 영어 식별자. place 의 target 은 right_box/left_box 둘 중 하나로 고정. params 없는 액션(trash, hello_bot) 은 {{}} 로 출력.
-4. finding vs tap 분별:
-   - 질문형/탐색 ("어디 있어", "찾아줘") → finding
-   - 손짓·지시 요청 ("가리켜", "짚어", "톡톡 쳐줘") → tap
-   - 단순히 "이거 보여줘" 처럼 모호하면 tap 우선 (손짓이 더 직관적)
-5. trash vs place 분별: "버려/치워/쓰레기" → trash. "오른쪽/왼쪽 박스에" → place. 발화에 "쓰레기통" 이라는 단어가 있어도 trash 액션으로 매핑 (별도 target 없음).
-6. 카탈로그 외 객체/액션 요청 시 sequence=[], reply 에 거절 멘트.
-7. reply 는 친근한 존댓말 1문장 ("~할게요", "~해드릴게요", "~네요"). 로봇답게 간결·자연스럽게.
-
+1. 객체별 잡는 방식은 고정이다. 사용자 발화의 "수직"/"수평"/"사이드" 같은 단어와 무관하게 위 매핑을 따른다.
+2. 모든 정상 시퀀스는 마지막에 reset 으로 종료한다 (단순 홈 복귀 / 단순 finding / 단순 tap 발화는 단독 가능).
+3. 잡기 동작(pick_vertical / pick_horizontal / pick_side) 직후에는 반드시 place(target), trash(), pour(target), 또는 reset() 중 하나가 와야 다시 잡기 동작을 호출할 수 있다.
+   (한 번에 한 물건만 잡을 수 있음. 다음 물건 잡기 전 들고 있던 것을 내려놓아야 함.)
+4. place(target) 는 target이 반드시 "left_box" 또는 "right_box" 여야 한다. 그 외 값은 거절.
+5. trash() 는 쓰레기통 전용 동작이므로 params는 {{}}. "쓰레기통에 버려"는 항상 trash() 로 매핑한다.
+6. shake(), pour(target), place(target), trash() 는 직전에 잡은 상태여야 한다.
+7. tap(target) 은 잡지 않은 상태로 단독 사용. tap 후엔 reset 으로 마무리.
+8. params 는 항상 {{"target": ...}} 형식. 액션 자체가 인자 없으면 {{}}.
+9. 객체는 영어로(apple/orange/shaker/plate/pear/banana/toy_block), 위치도 영어로(left_box/right_box) 발행.
+10. 카탈로그에 없는 액션이나 지원하지 않는 값을 요청하면 sequence 는 [], reply 는 거절 멘트.
+11. step 번호는 1부터 순차.
+ 
 [예시]
-"사과 버려" → {{"sequence":[{{"step":1,"action":"pick","params":{{"target":"apple"}}}},{{"step":2,"action":"trash","params":{{}}}}],"reply":"네, 사과 버릴게요."}}
-
-"오렌지 오른쪽 박스에 넣어줘" → {{"sequence":[{{"step":1,"action":"pick","params":{{"target":"orange"}}}},{{"step":2,"action":"place","params":{{"target":"right_box"}}}}],"reply":"네, 오렌지를 오른쪽 박스에 넣어드릴게요."}}
-
-"후추통으로 접시에 뿌려" → {{"sequence":[{{"step":1,"action":"pick_horizontal","params":{{"target":"shaker"}}}},{{"step":2,"action":"pour","params":{{"target":"plate"}}}}],"reply":"네, 접시에 뿌려드릴게요."}}
-
-"배 어디 있어?" → {{"sequence":[{{"step":1,"action":"finding","params":{{"target":"pear"}}}}],"reply":"배 찾아볼게요."}}
-
-"바나나 좀 짚어봐" → {{"sequence":[{{"step":1,"action":"tap","params":{{"target":"banana"}}}}],"reply":"바나나 여기 있어요."}}
-
-"안녕!" → {{"sequence":[{{"step":1,"action":"hello_bot","params":{{}}}}],"reply":"안녕하세요!"}}
-
-"수박 가져와" → {{"sequence":[],"reply":"죄송해요, 수박은 아직 다루지 못해요."}}
-
+사용자: "사과 버려줘"
+{{"sequence":[{{"step":1,"action":"pick_vertical","params":{{"target":"apple"}}}},{{"step":2,"action":"trash","params":{{}}}},{{"step":3,"action":"reset","params":{{}}}}],"reply":"네, 사과를 쓰레기통에 버리겠습니다."}}
+ 
+사용자: "오렌지 왼쪽 박스에 둬"
+{{"sequence":[{{"step":1,"action":"pick_vertical","params":{{"target":"orange"}}}},{{"step":2,"action":"place","params":{{"target":"left_box"}}}},{{"step":3,"action":"reset","params":{{}}}}],"reply":"네, 오렌지를 왼쪽 박스에 두겠습니다."}}
+ 
+사용자: "바나나 오른쪽에 놔줘"
+{{"sequence":[{{"step":1,"action":"pick_vertical","params":{{"target":"banana"}}}},{{"step":2,"action":"place","params":{{"target":"right_box"}}}},{{"step":3,"action":"reset","params":{{}}}}],"reply":"네, 바나나를 오른쪽 박스에 두겠습니다."}}
+ 
+사용자: "접시 잡아"
+{{"sequence":[{{"step":1,"action":"pick_side","params":{{"target":"plate"}}}},{{"step":2,"action":"reset","params":{{}}}}],"reply":"네, 접시를 잡겠습니다."}}
+ 
+사용자: "후추통 흔들어"
+{{"sequence":[{{"step":1,"action":"pick_horizontal","params":{{"target":"shaker"}}}},{{"step":2,"action":"shake","params":{{}}}},{{"step":3,"action":"reset","params":{{}}}}],"reply":"네, 후추통을 흔들겠습니다."}}
+ 
+사용자: "사과 흔들고 쓰레기통에 버려"
+{{"sequence":[{{"step":1,"action":"pick_vertical","params":{{"target":"apple"}}}},{{"step":2,"action":"shake","params":{{}}}},{{"step":3,"action":"trash","params":{{}}}},{{"step":4,"action":"reset","params":{{}}}}],"reply":"네, 사과를 흔들고 쓰레기통에 버리겠습니다."}}
+ 
+사용자: "사과 왼쪽 박스에 두고 바나나 오른쪽 박스에 둬"
+{{"sequence":[{{"step":1,"action":"pick_vertical","params":{{"target":"apple"}}}},{{"step":2,"action":"place","params":{{"target":"left_box"}}}},{{"step":3,"action":"pick_vertical","params":{{"target":"banana"}}}},{{"step":4,"action":"place","params":{{"target":"right_box"}}}},{{"step":5,"action":"reset","params":{{}}}}],"reply":"네, 사과를 왼쪽 박스에, 바나나를 오른쪽 박스에 두겠습니다."}}
+ 
+사용자: "오렌지랑 배 다 쓰레기통에 버려"
+{{"sequence":[{{"step":1,"action":"pick_vertical","params":{{"target":"orange"}}}},{{"step":2,"action":"trash","params":{{}}}},{{"step":3,"action":"pick_vertical","params":{{"target":"pear"}}}},{{"step":4,"action":"trash","params":{{}}}},{{"step":5,"action":"reset","params":{{}}}}],"reply":"네, 오렌지와 배를 차례로 쓰레기통에 버리겠습니다."}}
+ 
+사용자: "후추통으로 접시에 부어줘"
+{{"sequence":[{{"step":1,"action":"pick_horizontal","params":{{"target":"shaker"}}}},{{"step":2,"action":"pour","params":{{"target":"plate"}}}},{{"step":3,"action":"reset","params":{{}}}}],"reply":"네, 후추통에 든 것을 접시에 부어드릴게요."}}
+ 
+사용자: "레고 톡톡 두드려"
+{{"sequence":[{{"step":1,"action":"tap","params":{{"target":"toy_block"}}}},{{"step":2,"action":"reset","params":{{}}}}],"reply":"네, 레고를 톡톡 두드리겠습니다."}}
+ 
+사용자: "배 어디있어"
+{{"sequence":[{{"step":1,"action":"finding","params":{{"target":"pear"}}}}],"reply":"배를 찾아볼게요."}}
+ 
+사용자: "홈으로 가"
+{{"sequence":[{{"step":1,"action":"reset","params":{{}}}}],"reply":"네, 홈 포지션으로 복귀하겠습니다."}}
+ 
+사용자: "수박 가져와"
+{{"sequence":[],"reply":"죄송합니다. 현재 지원하는 객체가 아니에요."}}
+ 
+사용자: "사과 가운데 박스에 둬"
+{{"sequence":[],"reply":"죄송합니다. 왼쪽 박스 또는 오른쪽 박스에만 둘 수 있어요."}}
+ 
+사용자: "그냥 흔들어"
+{{"sequence":[],"reply":"어떤 물건을 흔들까요?"}}
+ 
 <사용자 입력>
 "{user_input}"
 """
+
+
 
 
 def _env_float(name, default):
@@ -278,8 +325,9 @@ def run_worker():
     qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
     pub_wakeup = node.create_publisher(String, "/wakeup_status", qos)
     pub_stt = node.create_publisher(String, "/stt_result", qos)
-    pub_debug = node.create_publisher(String, "/wakeup_debug", qos)
-    pub_progress = node.create_publisher(String, "/wakeup_progress", qos)
+    # /wakeup_debug, /wakeup_progress 발행 비활성화 — 필요 시 주석 해제
+    # pub_debug = node.create_publisher(String, "/wakeup_debug", qos)
+    # pub_progress = node.create_publisher(String, "/wakeup_progress", qos)
     # Canonical voice-pipeline topics consumed by cobot_core.state_manager
     # (/voice_command, sequence-as-JSON-array) and voice_client (/voice_reply,
     # plain reply string). Format matches voice_to_command.py exactly.
@@ -287,13 +335,15 @@ def run_worker():
     pub_voice_reply = node.create_publisher(String, "/voice_reply", qos)
 
     def emit_progress(stage, **extra):
-        payload = {"stage": stage, "ts": time.time()}
-        payload.update(extra)
-        pub_progress.publish(String(data=json.dumps(payload, ensure_ascii=False)))
-        extra_str = " ".join(f"{k}={v}" for k, v in extra.items())
-        node.get_logger().info(
-            f"📢 /wakeup_progress — {stage}" + (f" ({extra_str})" if extra_str else "")
-        )
+        # /wakeup_progress 비활성화됨. 호출부는 그대로 두고 no-op 처리.
+        # payload = {"stage": stage, "ts": time.time()}
+        # payload.update(extra)
+        # pub_progress.publish(String(data=json.dumps(payload, ensure_ascii=False)))
+        # extra_str = " ".join(f"{k}={v}" for k, v in extra.items())
+        # node.get_logger().info(
+        #     f"📢 /wakeup_progress — {stage}" + (f" ({extra_str})" if extra_str else "")
+        # )
+        pass
     node.get_logger().info(
         f"wakeup_worker_node initialized (threshold={threshold}, "
         f"record={record_min_seconds}–{record_max_seconds}s, "
@@ -317,13 +367,14 @@ def run_worker():
             # Debug telemetry — emit every chunk so the browser console shows live confidence
             # plus a coarse audio level (peak abs amplitude / 32768) for "is the mic alive" sanity.
             level = float(np.max(np.abs(samples)) / 32768.0) if samples.size else 0.0
-            pub_debug.publish(String(data=json.dumps({
-                "confidence": confidence,
-                "level": level,
-                "threshold": threshold,
-                "chunk": chunk_idx,
-                "ts": time.time(),
-            })))
+            # /wakeup_debug 비활성화됨 — 필요 시 주석 해제
+            # pub_debug.publish(String(data=json.dumps({
+            #     "confidence": confidence,
+            #     "level": level,
+            #     "threshold": threshold,
+            #     "chunk": chunk_idx,
+            #     "ts": time.time(),
+            # })))
             # Live status line on the parent's terminal — \r overwrites in place
             # so the readout updates ~4 Hz without scrolling. ROS log lines push
             # it down to a new line when they fire.
@@ -395,12 +446,8 @@ def run_worker():
                         "reply": text,
                     }
                     emit_progress("refine_failed", elapsed=round(time.time() - t0, 3))
-                stt_data = json.dumps(payload, ensure_ascii=False)
-                pub_stt.publish(String(data=stt_data))
-                node.get_logger().info(
-                    f"📢 /stt_result — reply={payload['reply']!r} "
-                    f"(seq={len(payload['sequence'])} steps, {len(stt_data)} bytes)"
-                )
+                pub_stt.publish(String(data=payload["transcription"]))
+                node.get_logger().info(f"📢 /stt_result — {payload['transcription']!r}")
 
                 # Canonical fan-out matching voice_to_command.py exactly:
                 # state_manager subscribes to /voice_command (sequence array),

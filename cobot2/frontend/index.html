@@ -224,7 +224,18 @@
     });
 
     const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${wsProto}//${location.host}/ws/client`;
+    // 같은 브라우저(=같은 localStorage) 는 항상 동일 cid 를 보낸다. 백엔드는
+    // 같은 cid 로 새 ws 가 들어오면 기존 ws 를 close(4000) 으로 끊는다 →
+    // 새로고침·탭 복제·디바이스 슬립-복귀 시 누적되어 TTS 가 N 번 재생되는
+    // 문제가 발생하지 않는다. 다른 디바이스/브라우저는 자기만의 cid 라서
+    // 독립적으로 1 ws 를 유지한다.
+    let cid = localStorage.getItem("cobot2_cid");
+    if (!cid) {
+      cid = (crypto.randomUUID && crypto.randomUUID()) ||
+            (Date.now().toString(36) + Math.random().toString(36).slice(2));
+      localStorage.setItem("cobot2_cid", cid);
+    }
+    const wsUrl = `${wsProto}//${location.host}/ws/client?cid=${encodeURIComponent(cid)}`;
 
     function connectWs() {
       console.log("[ws] connecting →", wsUrl);
@@ -239,32 +250,31 @@
           console.warn("[ws] non-JSON frame", ev.data);
           return;
         }
-        if (data.type === "wakeup_debug") {
-          // High-frequency telemetry from the worker (~4 Hz). Use console.debug
-          // so it can be filtered out via the browser's log-level toggle.
-          console.debug(
-            `[debug] conf=${data.confidence?.toFixed(3)} level=${data.level?.toFixed(3)} thr=${data.threshold} chunk=${data.chunk}`
-          );
-        } else if (data.type === "wakeup_progress") {
-          const { stage, ...rest } = data;
-          console.log(`[progress] ${stage}`, rest);
-        } else {
-          console.log("[ws]", data.type, data);
-        }
+        // /wakeup_debug, /wakeup_progress 핸들러 비활성화 — 필요 시 주석 해제
+        // if (data.type === "wakeup_debug") {
+        //   console.debug(
+        //     `[debug] conf=${data.confidence?.toFixed(3)} level=${data.level?.toFixed(3)} thr=${data.threshold} chunk=${data.chunk}`
+        //   );
+        // } else if (data.type === "wakeup_progress") {
+        //   const { stage, ...rest } = data;
+        //   console.log(`[progress] ${stage}`, rest);
+        // } else {
+        console.log("[ws]", data.type, data);
+        // }
         if (data.type === "wakeup") {
           setFace(FACE_SMILE);
           setOverlay("");
-          // Safety net: if /stt_result or TTS never fires (network drop, API
+          // Safety net: if /voice_reply or TTS never fires (network drop, API
           // error, mic glitch), bounce back to wait_face so we don't sit in
           // smile_face forever.
           clearFaceFallback();
           faceFallbackTimer = setTimeout(returnToWait, FACE_FALLBACK_MS);
         } else if (data.type === "stt_result") {
-          console.log("[response]", {
-            reply: data.text,
-            transcription: data.transcription,
-            sequence: data.sequence,
-          });
+          // Raw Whisper transcription (사용자 발화). 디버그용 로그만.
+          console.log("[stt]", data.text);
+        } else if (data.type === "voice_reply") {
+          // GPT 가 만든 reply — 화면 표시 + TTS 재생 대상.
+          console.log("[reply]", data.text);
           setFace(FACE_SMILE);
           setOverlay(data.text || "");
           clearFaceFallback();
@@ -273,6 +283,12 @@
         }
       });
       ws.addEventListener("close", (ev) => {
+        // 4000 = 같은 cid 로 새 ws 가 붙어서 백엔드가 이 연결을 끊은 것. 다시
+        // 붙으면 또 superseded 무한 루프가 되니까 reconnect 하지 않는다.
+        if (ev.code === 4000) {
+          console.log(`[ws] superseded by newer connection — not reconnecting`);
+          return;
+        }
         console.log(`[ws] close code=${ev.code} reason=${ev.reason || "-"} → reconnect in 2s`);
         setTimeout(connectWs, 2000);
       });

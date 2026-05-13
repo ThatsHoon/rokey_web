@@ -31,15 +31,34 @@ from openai import OpenAI
 
 # ── WebSocket 연결 관리 ────────────────────────────
 class WsManager:
+    """`cid` 기반 dedup. 동일 client id 로 새 ws 가 붙으면 기존 ws 를 끊어
+    같은 브라우저(localStorage 공유) 는 항상 1개의 연결만 유지된다.
+    cid 없이 들어오는 구버전 프론트는 dedup 없이 그대로 누적 (호환 목적).
+    """
+
+    SUPERSEDED_CODE = 4000  # 4000-4999 = application-defined close codes
+
     def __init__(self):
         self._connections: list[WebSocket] = []
+        self._by_cid: dict[str, WebSocket] = {}
 
-    async def connect(self, ws: WebSocket):
+    async def connect(self, ws: WebSocket, cid: str | None = None):
         await ws.accept()
+        if cid:
+            old = self._by_cid.pop(cid, None)
+            if old is not None and old is not ws:
+                self._connections = [c for c in self._connections if c is not old]
+                try:
+                    await old.close(code=self.SUPERSEDED_CODE, reason="superseded")
+                except Exception:
+                    pass
+            self._by_cid[cid] = ws
         self._connections.append(ws)
 
     def disconnect(self, ws: WebSocket):
-        self._connections = [c for c in self._connections if c != ws]
+        self._connections = [c for c in self._connections if c is not ws]
+        for k in [k for k, v in self._by_cid.items() if v is ws]:
+            del self._by_cid[k]
 
     async def broadcast(self, data: dict):
         dead = []
@@ -65,8 +84,10 @@ class ClientBridgeNode(Node):
 
         self.create_subscription(String, '/wakeup_status',   self._on_wakeup,          qos)
         self.create_subscription(String, '/stt_result',      self._on_stt,             qos)
-        self.create_subscription(String, '/wakeup_debug',    self._on_wakeup_debug,    qos)
-        self.create_subscription(String, '/wakeup_progress', self._on_wakeup_progress, qos)
+        self.create_subscription(String, '/voice_reply',     self._on_voice_reply,     qos)
+        # /wakeup_debug, /wakeup_progress 구독 비활성화 — 필요 시 주석 해제
+        # self.create_subscription(String, '/wakeup_debug',    self._on_wakeup_debug,    qos)
+        # self.create_subscription(String, '/wakeup_progress', self._on_wakeup_progress, qos)
 
         self.get_logger().info('ClientBridgeNode 시작')
 
@@ -78,37 +99,30 @@ class ClientBridgeNode(Node):
         data['type'] = 'wakeup'
         self._emit(data)
 
-    def _on_wakeup_debug(self, msg: String):
-        try:
-            data = json.loads(msg.data)
-        except json.JSONDecodeError:
-            return
-        data['type'] = 'wakeup_debug'
-        self._emit(data)
-
-    def _on_wakeup_progress(self, msg: String):
-        try:
-            data = json.loads(msg.data)
-        except json.JSONDecodeError:
-            return
-        data['type'] = 'wakeup_progress'
-        self._emit(data)
+    # /wakeup_debug, /wakeup_progress 핸들러 비활성화 — 필요 시 주석 해제
+    # def _on_wakeup_debug(self, msg: String):
+    #     try:
+    #         data = json.loads(msg.data)
+    #     except json.JSONDecodeError:
+    #         return
+    #     data['type'] = 'wakeup_debug'
+    #     self._emit(data)
+    #
+    # def _on_wakeup_progress(self, msg: String):
+    #     try:
+    #         data = json.loads(msg.data)
+    #     except json.JSONDecodeError:
+    #         return
+    #     data['type'] = 'wakeup_progress'
+    #     self._emit(data)
 
     def _on_stt(self, msg: String):
-        raw = msg.data
-        try:
-            payload = json.loads(raw)
-        except (json.JSONDecodeError, ValueError):
-            payload = None
-        if isinstance(payload, dict):
-            self._emit({
-                'type': 'stt_result',
-                'text': payload.get('reply') or payload.get('transcription', ''),
-                'transcription': payload.get('transcription', ''),
-                'sequence': payload.get('sequence', []),
-            })
-        else:
-            self._emit({'type': 'stt_result', 'text': raw})
+        # /stt_result 는 Whisper raw transcription (사용자 발화 그대로) 만 들어옴.
+        self._emit({'type': 'stt_result', 'text': msg.data})
+
+    def _on_voice_reply(self, msg: String):
+        # /voice_reply 는 GPT command parser 의 reply 문장. TTS 재생 대상.
+        self._emit({'type': 'voice_reply', 'text': msg.data})
 
     def _emit(self, data: dict):
         if loop and not loop.is_closed():
@@ -135,8 +149,8 @@ _TTS_VOICE = os.getenv('TTS_VOICE', 'alloy')
 
 
 @app.websocket('/ws/client')
-async def ws_endpoint(websocket: WebSocket):
-    await ws_manager.connect(websocket)
+async def ws_endpoint(websocket: WebSocket, cid: str | None = None):
+    await ws_manager.connect(websocket, cid=cid)
     try:
         while True:
             await websocket.receive_text()
